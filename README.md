@@ -1,2 +1,3 @@
 # pingp
-toolkit for ping
+toolkit for ping, file transfer with resuming from break point.
+
