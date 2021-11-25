@@ -1,11 +1,3 @@
-/**
- * Copyright 2005-2021 Client Service International, Inc. All rights reserved. <br>
- * CSII PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.<br>
- * <br>
- * project: pingp <br>
- * create: 2021-11-4 17:16:30 <br>
- * vc: $Id: $
- */
 
 package com.ping.configure;
 
@@ -22,6 +14,7 @@ public class ServProperties {
 	public String dir = null;
 	public long timeout = 30;
 	public long maxThreads = Runtime.getRuntime().availableProcessors() * 10;
+	public boolean sync = true;
 
 	public int getPort() {
 		return port;
@@ -53,6 +46,14 @@ public class ServProperties {
 
 	public void setMaxThreads(long maxThreads) {
 		this.maxThreads = maxThreads;
+	}
+
+	public boolean isSync() {
+		return sync;
+	}
+
+	public void setSync(boolean sync) {
+		this.sync = sync;
 	}
 
 }

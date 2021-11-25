@@ -1,11 +1,3 @@
-/**
- * Copyright 2005-2021 Client Service International, Inc. All rights reserved. <br>
- * CSII PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.<br>
- * <br>
- * project: pingp <br>
- * create: 2021-11-4 15:54:03 <br>
- * vc: $Id: $
- */
 
 package com.ping.file.util;
 

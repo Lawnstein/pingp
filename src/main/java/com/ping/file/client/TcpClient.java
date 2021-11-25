@@ -1,11 +1,3 @@
-/**
- * Copyright 2005-2021 Client Service International, Inc. All rights reserved. <br>
- * CSII PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.<br>
- * <br>
- * project: pingp <br>
- * create: 2021-11-4 18:14:38 <br>
- * vc: $Id: $
- */
 
 package com.ping.file.client;
 
@@ -18,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,9 +21,10 @@ import com.ping.file.protocol.Packet;
 import com.ping.file.util.ClientSocket;
 import com.ping.file.util.NamedThreadFactory;
 import com.ping.file.util.Utils;
+import com.ping.sync.ChangeManager;
 
 /**
- * TODO 请填写注释.
+ * 客户端操作.
  * 
  * @author lawnstein.chan
  * @version $Revision:$
@@ -46,6 +40,7 @@ public class TcpClient {
 	protected String path;
 	protected int timeout = Utils.DEFAULT_TIMEOUT_SEC;
 	protected int retry = 30;
+	protected boolean sync = true;
 
 	/**
 	 * TCP请求处理并发处理线程.
@@ -56,6 +51,13 @@ public class TcpClient {
 	 * TCP请求处理并发处理线程池.
 	 */
 	private ExecutorService handlePool = null;
+
+	/**
+	 * 处理进度.
+	 */
+	private int totalCounter = 0;
+	private AtomicInteger handleCounter = new AtomicInteger(0);
+	private int perct = -1;
 
 	public TcpClient(String ip, int port, String path, int maxThreads, ClientProperties propties) {
 		super();
@@ -82,7 +84,20 @@ public class TcpClient {
 			this.maxHandleThreads = (int) propties.maxThreads;
 		}
 		System.out.println(this.maxHandleThreads);
+
+		String syncStr = System.getProperty("client.sync");
+		if (syncStr != null && syncStr.length() > 0) {
+			this.sync = Boolean.valueOf(syncStr);
+		} else if (propties != null) {
+			this.sync = propties.sync;
+		}
+		ChangeManager.setBasePath(System.getProperty("user.home"));
+
 		this.handlePool = Executors.newFixedThreadPool(maxHandleThreads, new NamedThreadFactory("Handler"));
+	}
+
+	public boolean isSync() {
+		return sync;
 	}
 
 	public boolean exists(String path) {
@@ -131,6 +146,45 @@ public class TcpClient {
 		}
 	}
 
+	public void startPerct() {
+		System.out.print("0");
+		if (totalCounter == 0) {
+			return;
+		}
+
+		Runnable r = new Runnable() {
+			@Override
+			public void run() {
+				while (true) {
+					int pct = handleCounter.intValue() * 100 / totalCounter;
+					if (pct == perct) {
+						return;
+					}
+					if (perct != -1) {
+						String s = perct + "";
+						for (int i = 0; i < s.length(); i++) {
+							System.out.print("\b \b");
+						}
+					}
+					System.out.print(pct + "");
+					if (perct >= 100) {
+						break;
+					}
+					
+					perct = pct;
+					try {
+						Thread.sleep(1000);
+					} catch (InterruptedException e) {
+					}
+				}
+			}
+
+		};
+		Thread pt = new Thread(r);
+		pt.setDaemon(true);
+		pt.start();
+	}
+
 	public void upload() {
 		List<String> l = new ArrayList<String>();
 		getFiles(path, l);
@@ -147,6 +201,8 @@ public class TcpClient {
 			origDir = path.substring(0, path.length() - getBasename(path).length());
 		}
 		List<String> ud = new ArrayList<String>();
+		totalCounter = l.size();
+		startPerct();
 		CountDownLatch cdl = new CountDownLatch(l.size());
 		for (String s : l) {
 			final String fn = origDir == null || origDir.length() == 0 ? s : s.substring(origDir.length() - 1);
@@ -156,9 +212,22 @@ public class TcpClient {
 					Exception thr = null;
 					for (int i = 0; i < retry; i++) {
 						try {
-							Handler h = new Handler(ip, port, s, fn);
-							h.run();
-							thr = null;
+							int stat = -1;
+							boolean up = true;
+							if (isSync()) {
+								stat = ChangeManager.getChanged(s);
+								if (stat == 0) {
+									up = false;
+								}
+							}
+							if (up) {
+								Handler h = new Handler(ip, port, s, fn);
+								h.run();
+								if (h.result && stat > 0) {
+									ChangeManager.writeChange(s, h.fileChksum);
+								}
+								thr = null;
+							}
 							break;
 						} catch (Exception e) {
 							logger.error("handle " + s + " failed, " + e.getMessage());
@@ -169,6 +238,7 @@ public class TcpClient {
 						ud.add(s);
 					}
 					cdl.countDown();
+					handleCounter.getAndIncrement();
 				}
 			};
 			handlePool.execute(r);
@@ -195,6 +265,7 @@ public class TcpClient {
 		private RandomAccessFile fileRaf = null;
 		private Packet send = null;
 		private Packet recv = null;
+		private boolean result = false;
 
 		public Handler(String ip, int port, String path, String rfilename) throws Exception {
 			this.s = ClientSocket.connect(ip, port);
@@ -299,6 +370,7 @@ public class TcpClient {
 				} while (recv.chunkIndex > 0 && recv.chunkIndex < Long.MAX_VALUE);
 
 				logger.debug("over.");
+				result = true;
 			} catch (Throwable e) {
 				throw new RuntimeException("send or recv Packet failed, " + e.getMessage());
 			} finally {

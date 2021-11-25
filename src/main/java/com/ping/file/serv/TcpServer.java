@@ -22,6 +22,7 @@ import com.ping.file.protocol.Packet;
 import com.ping.file.util.ClientSocket;
 import com.ping.file.util.NamedThreadFactory;
 import com.ping.file.util.Utils;
+import com.ping.sync.ChangeManager;
 
 /**
  * TCP服务.
@@ -32,7 +33,7 @@ import com.ping.file.util.Utils;
 public class TcpServer {
 	private static final Logger logger = LoggerFactory.getLogger(TcpServer.class);
 
-	protected static String DEFAULT_FILE_ENCODING = "UTF-8";
+	protected static String DEFAULT_FILE_ENCODING = Utils.DEFAULT_FILE_ENCODING;
 	protected final int HEADLENGTH = Utils.HEADLENGTH;
 	protected final int EXPIRED_MILLIS = 30 * 1000;
 
@@ -55,6 +56,8 @@ public class TcpServer {
 	 */
 	protected int maxHandleThreads = Runtime.getRuntime().availableProcessors() * 10;
 
+	protected boolean sync = true;
+
 	/**
 	 * TCP请求处理并发处理线程池.
 	 */
@@ -67,6 +70,7 @@ public class TcpServer {
 	class Handler implements Runnable {
 		private Socket s;
 		private String path = null;
+		// private boolean fileWrite = true;
 		private boolean fileAppend = false;
 		private String fileChksum = null;
 		private long fileChunkIndex = 0l;
@@ -74,13 +78,16 @@ public class TcpServer {
 		private boolean fileOver = false;
 		private Packet recv = null;
 		private Packet send = new Packet();
+		private int stat = 2;
+		private boolean result = false;
 
 		public Handler(Socket socket) {
 			this.s = socket;
+			logger.info("connection {} accepted", s);
 		}
 
 		private void close() {
-			logger.debug("connection {} closed for {}", s, path);
+			logger.info("connection {} closed for {}", s, path);
 			if (fileOut != null) {
 				try {
 					fileOut.flush();
@@ -94,68 +101,35 @@ public class TcpServer {
 		}
 
 		public boolean exists(String path) {
-			return exists(new File(path));
+			return Utils.exists(path);
 		}
 
 		public boolean exists(File path) {
-			return path.exists();
+			return Utils.exists(path);
 		}
 
 		public String getBasename(String path) {
-			if (path == null || path.length() == 0)
-				return null;
-			String[] names = path.split("[\\\\/]");
-			if (names == null || names.length == 0)
-				return null;
-			return names[names.length - 1];
+			return Utils.getBasename(path);
 		}
 
 		public String getDirname(String path) {
-			if (path == null || path.length() == 0)
-				return null;
-			String basename = getBasename(path);
-			if (basename == null)
-				return null;
-			return path.substring(0, path.length() - basename.length());
+			return Utils.getDirname(path);
 		}
 
 		public boolean mkdirsForFile(String absoluteFile) {
-			String parent = getDirname(absoluteFile);
-			logger.trace("The file " + absoluteFile + " directory " + parent + ", try to mkdirs ...");
-			return mkdirs(parent);
+			return Utils.mkdirsForFile(absoluteFile);
 		}
 
 		public boolean mkdirs(String absoluteDirectory) {
-			return mkdirs(new File(absoluteDirectory));
+			return Utils.mkdirs(absoluteDirectory);
 		}
 
 		public boolean mkdirs(File dir) {
-			if (dir == null)
-				return false;
-			if (dir.exists()) {
-				if (!dir.isDirectory()) {
-					logger.error("The directory " + dir.getAbsolutePath() + " exist and not a directory, cannot create dir.");
-					return false;
-				} else {
-					return true;
-				}
-			}
-			boolean result = dir.mkdirs();
-			logger.debug("The directory " + dir.getAbsolutePath() + " not exist, mkdirs " + result);
-			return result;
+			return Utils.mkdirs(dir);
 		}
 
 		public boolean createNewFile(String absoluteFile) {
-			if (!mkdirsForFile(absoluteFile)) {
-				logger.error("Create directory for file " + absoluteFile + " failed.");
-				return false;
-			}
-			try {
-				return new File(absoluteFile).createNewFile();
-			} catch (IOException e) {
-				logger.error("createNewFile for " + absoluteFile + " IOException:", e);
-			}
-			return false;
+			return Utils.createNewFile(absoluteFile);
 		}
 
 		public String[] getConf() {
@@ -248,29 +222,35 @@ public class TcpServer {
 				fileChksum = recv.chksum;
 				path = dir + "//" + recv.lfilename;
 				send = recv.clone();
-				send.lfilename = null;
-				if (!mkdirsForFile(path)) {
+					send.lfilename = null;
 					if (!mkdirsForFile(path)) {
-						send.cmdResult = false;
-						send.cmdMesg = "mdkir for " + path + " failed.";
-						logger.error(send.cmdMesg);
-						return;
+						if (!mkdirsForFile(path)) {
+							send.cmdResult = false;
+							send.cmdMesg = "mdkir for " + path + " failed.";
+							logger.error(send.cmdMesg);
+							return;
+						}
 					}
-				}
 				if (exists(path)) {
 					String[] ci = getConf();
 					if (ci == null) {
-						if (fileChksum.equals(Utils.chksum(path))) {
+						// if (fileChksum.equals(Utils.chksum(path))) {
+						stat = isSync() ? ChangeManager.getChanged(path, fileChksum) : fileChksum.equals(Utils.chksum(path)) ? 0 : 2;
+						if (stat == 0 || stat == 1) {
 							fileOver = true;
+							// fileWrite = false;
 							send.chunkIndex = Long.MAX_VALUE;
 							send.cmdMesg = "file " + path + " exist and no changes.";
-							logger.debug(send.cmdMesg);
+							logger.info(send.cmdMesg);
+							if (isSync() && (stat == 1)) {
+								ChangeManager.writeChange(path, fileChksum);
+							}
 							return;
 						}
 					} else if (fileChksum.equals(ci[1])) {
 						fileAppend = true;
 						fileChunkIndex = Long.valueOf(ci[0]) + 1;
-						logger.debug("file " + path + " continue to transfer.");
+						logger.debug("file {} continue to transfer.", path);
 					} else {
 						fileAppend = false;
 						fileChunkIndex = 0;
@@ -280,21 +260,24 @@ public class TcpServer {
 					fileChunkIndex = 0;
 				}
 				send.chunkIndex = fileChunkIndex;
-				logger.debug("file " + path + " expect chunkIndex " + send.chunkIndex);
+				logger.info("file {} expect chunkIndex {}", path, send.chunkIndex);
 			} else if (recv.command.equals(Command.UPLOADFILE)) {
 				if (recv.chunkBytes == null || recv.chunkBytes.length == 0) {
 					delConf();
 					fileOver = true;
-					logger.debug("file " + path + " recv empty, maybe complete.");
+					logger.debug("file {} recv empty, maybe complete.", path);
 
 					send = recv.clone();
 					send.chunkIndex = Long.MAX_VALUE;
 					send.cmdMesg = "file " + path + " write over.";
+					if (isSync()) {
+						ChangeManager.writeChange(path, fileChksum);
+					}
 				} else {
 					send = recv.clone();
 					try {
 						writeBytes(recv.chunkBytes);
-						logger.debug("file " + path + " write chunkIndex " + fileChunkIndex + ", " + recv.chunkBytes.length + " byte(s)");
+						logger.debug("file {} write chunkIndex {}, {} byte(s)", path, fileChunkIndex, recv.chunkBytes.length);
 						fileChunkIndex++;
 						writeConf(fileChunkIndex + "," + fileChksum);
 						send.chunkIndex = fileChunkIndex;
@@ -326,7 +309,6 @@ public class TcpServer {
 				} catch (InterruptedException e) {
 				}
 				close();
-				logger.debug("Close {}", s);
 			}
 		}
 
@@ -338,21 +320,21 @@ public class TcpServer {
 	 */
 	public TcpServer(int port, String dir, int maxThreads, ServProperties propties) {
 		super();
-	
+
 		String dirStr = System.getProperty("server.dir");
 		if (dirStr != null && dirStr.length() > 0) {
 			this.dir = dirStr;
 		} else {
 			this.dir = dir != null && dir.length() > 0 ? dir : propties.dir;
 		}
-	
+
 		String portStr = System.getProperty("server.port");
 		if (portStr != null && portStr.length() > 0) {
 			this.port = Integer.valueOf(portStr);
 		} else {
 			this.port = port > 0 ? port : propties.port;
 		}
-	
+
 		String maxHandleThreadsStr = System.getProperty("server.max-threads");
 		if (maxHandleThreadsStr != null && maxHandleThreadsStr.length() > 0) {
 			this.maxHandleThreads = Integer.valueOf(maxHandleThreadsStr);
@@ -361,6 +343,15 @@ public class TcpServer {
 		} else if (propties != null && propties.maxThreads > 0) {
 			this.maxHandleThreads = (int) propties.maxThreads;
 		}
+
+		String syncStr = System.getProperty("client.sync");
+		if (syncStr != null && syncStr.length() > 0) {
+			this.sync = Boolean.valueOf(syncStr);
+		} else if (propties != null) {
+			this.sync = propties.sync;
+		}
+
+		ChangeManager.setBasePath(this.dir);
 	}
 
 	public void start() {
@@ -388,7 +379,7 @@ public class TcpServer {
 					try {
 						Socket s = server.accept();
 						if (s != null) {
-							logger.debug("Accepted connection " + s);
+							logger.debug("Accepted connection {}", s);
 							s.setTcpNoDelay(true);
 							s.setSoLinger(true, 10);
 							handlePool.execute(new Handler(s));
@@ -473,6 +464,10 @@ public class TcpServer {
 
 	public void setMaxHandleThreads(int maxHandleThreads) {
 		this.maxHandleThreads = maxHandleThreads;
+	}
+
+	public boolean isSync() {
+		return sync;
 	}
 
 	private ServerSocket createServerSocket(int port) {

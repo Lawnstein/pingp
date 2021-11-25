@@ -1,11 +1,3 @@
-/**
- * Copyright 2005-2021 Client Service International, Inc. All rights reserved. <br>
- * CSII PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.<br>
- * <br>
- * project: pingp <br>
- * create: 2021-11-4 17:16:30 <br>
- * vc: $Id: $
- */
 
 package com.ping.configure;
 
@@ -23,6 +15,7 @@ public class ClientProperties {
 	public long retry = 0;
 	public long timeout = 0;
 	public long maxThreads = Runtime.getRuntime().availableProcessors() * 4;
+	public boolean sync = true;
 
 	public String getIp() {
 		return ip;
@@ -62,6 +55,14 @@ public class ClientProperties {
 
 	public void setMaxThreads(long maxThreads) {
 		this.maxThreads = maxThreads;
+	}
+
+	public boolean isSync() {
+		return sync;
+	}
+
+	public void setSync(boolean sync) {
+		this.sync = sync;
 	}
 
 }
