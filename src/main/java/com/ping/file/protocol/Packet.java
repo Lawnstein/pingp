@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.util.Arrays;
 
 /**
  * 数据传输包.
@@ -19,10 +20,8 @@ public class Packet implements Serializable {
 	public boolean cmdResult;
 	public String cmdMesg;
 
-	public String lfilename;
-	// public String rfilename;
+	public String filename;
 	public String chksum;
-	// public long filesize;
 	public long chunkIndex;
 	public byte[] chunkBytes;
 
@@ -30,6 +29,7 @@ public class Packet implements Serializable {
 		super();
 		this.cmdResult = true;
 		this.cmdMesg = null;
+		this.chunkIndex = 0l;
 	}
 
 	@Override
@@ -41,17 +41,13 @@ public class Packet implements Serializable {
 		builder.append(cmdResult);
 		builder.append(", cmdMesg=");
 		builder.append(cmdMesg);
-		builder.append(", lfilename=");
-		builder.append(lfilename);
-		// builder.append(", rfilename=");
-		// builder.append(rfilename);
+		builder.append(", filename=");
+		builder.append(filename);
 		builder.append(", chksum=");
 		builder.append(chksum);
-		// builder.append(", filesize=");
-		// builder.append(filesize);
 		builder.append(", chunkIndex=");
 		builder.append(chunkIndex);
-		builder.append(", chunkBytes.length=");
+		builder.append(", chunkBytes.size=");
 		builder.append(chunkBytes == null ? 0 : chunkBytes.length);
 		builder.append("]");
 		return builder.toString();
@@ -61,7 +57,7 @@ public class Packet implements Serializable {
 		Packet p = new Packet();
 		p.cmdResult = true;
 		p.cmdMesg = null;
-		p.lfilename = this.lfilename;
+		p.filename = this.filename;
 		// p.rfilename = this.rfilename;
 		p.chksum = null;
 		// p.filesize = this.filesize;

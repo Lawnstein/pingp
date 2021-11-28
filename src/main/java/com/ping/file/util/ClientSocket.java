@@ -9,6 +9,8 @@ import java.net.Socket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.ping.file.protocol.Packet;
+
 /**
  * Socket操作.
  * 
@@ -168,6 +170,31 @@ public class ClientSocket {
 			return true;
 		} catch (IOException arg4) {
 			throw arg4;
+		}
+	}
+
+	public static Packet recvPacket(Socket s, int timeout) throws Throwable {
+		byte[] hb = new byte[Utils.HEADLENGTH];
+		int r = read(s, hb, 0, 8, timeout);
+		int isz = Integer.valueOf(new String(hb, "UTF-8"));
+		byte[] db = new byte[isz];
+		r = read(s, db, 0, isz, timeout);
+		return Packet.valueOf(db);
+	}
+
+	public static void sendPacket(Socket s, Packet send) throws Throwable {
+		if (send == null) {
+			return;
+		}
+		byte[] db = send.getBytes();
+		String hs = "" + db.length;
+		if (hs.length() < Utils.HEADLENGTH) {
+			hs = "00000000".substring(hs.length()) + hs;
+		}
+		byte[] hb = hs.getBytes("UTF-8");
+		ClientSocket.write(s, hb, 0, Utils.HEADLENGTH);
+		if (db.length > 0) {
+			ClientSocket.write(s, db, 0, db.length);
 		}
 	}
 }

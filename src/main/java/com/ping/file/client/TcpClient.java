@@ -37,10 +37,11 @@ public class TcpClient {
 
 	protected String ip;
 	protected int port;
-	protected String path;
 	protected int timeout = Utils.DEFAULT_TIMEOUT_SEC;
 	protected int retry = 30;
 	protected boolean sync = true;
+	protected String path;
+	protected String[] fileList;
 
 	/**
 	 * TCP请求处理并发处理线程.
@@ -91,7 +92,7 @@ public class TcpClient {
 		} else if (propties != null) {
 			this.sync = propties.sync;
 		}
-		
+
 		ChangeManager.setBasePath(null, System.getProperty("user.home"));
 		this.handlePool = Executors.newFixedThreadPool(maxHandleThreads, new NamedThreadFactory("Handler"));
 	}
@@ -99,52 +100,6 @@ public class TcpClient {
 	public boolean isSync() {
 		return sync;
 	}
-
-//	public boolean exists(String path) {
-//		return exists(new File(path));
-//	}
-//
-//	public boolean exists(File path) {
-//		return path.exists();
-//	}
-//
-//	public String getBasename(String path) {
-//		if (path == null || path.length() == 0)
-//			return null;
-//		String[] names = path.split("[\\\\/]");
-//		if (names == null || names.length == 0)
-//			return null;
-//		return names[names.length - 1];
-//	}
-//
-//	public String getDirname(String path) {
-//		if (path == null || path.length() == 0)
-//			return null;
-//		String basename = getBasename(path);
-//		if (basename == null)
-//			return null;
-//		return path.substring(0, path.length() - basename.length());
-//	}
-//
-//	public void getFiles(String path, List<String> list) {
-//		File file = new File(path);
-//		if (file.isDirectory()) {
-//			File[] files = file.listFiles();
-//			for (int i = 0; i < files.length; i++) {
-//				if (files[i].isDirectory()) {
-//					getFiles(files[i].getPath(), list);
-//				} else {
-//					list.add(files[i].getPath());
-//				}
-//			}
-//		} else if (file.isFile()) {
-//			list.add(file.getPath());
-//		} else if (!file.exists()) {
-//			logger.error("{} not exists or cannot read.", path);
-//		} else {
-//			logger.warn("Unsupprted file type (not common file and directory) for {}", path);
-//		}
-//	}
 
 	public void startPerct() {
 		System.out.print("0");
@@ -170,7 +125,7 @@ public class TcpClient {
 					if (perct >= 100) {
 						break;
 					}
-					
+
 					perct = pct;
 					try {
 						Thread.sleep(1000);
@@ -183,6 +138,70 @@ public class TcpClient {
 		Thread pt = new Thread(r);
 		pt.setDaemon(true);
 		pt.start();
+	}
+
+	public void download() {
+		for (int i = 0; i < retry; i++) {
+			try {
+				DwlistHandler listHandler = new DwlistHandler(this, path);
+				listHandler.run();
+				break;
+			} catch (Throwable e) {
+				logger.error("list " + path + " failed, " + e.getMessage());
+			}
+		}
+
+		logger.debug("List {} file(s) for {} .", fileList == null ? 0 : fileList.length, path);
+		if (fileList == null || fileList.length == 0) {
+			return;
+		}
+
+		String pwd = Utils.getPwd();
+		List<String> ud = new ArrayList<String>();
+		totalCounter = fileList.length;
+		startPerct();
+		CountDownLatch cdl = new CountDownLatch(fileList.length);
+		for (String s : fileList) {
+			final String fullname = pwd + s;
+			final TcpClient owner = this;
+			Runnable r = new Runnable() {
+				@Override
+				public void run() {
+					Exception thr = null;
+					for (int i = 0; i < retry; i++) {
+						try {
+							DwfileHandler h = new DwfileHandler(owner, fullname, s);
+							h.run();
+							thr = null;
+							break;
+						} catch (Exception e) {
+							logger.error("dw {} with {} failed, {}", path, s, e.getMessage(), e);
+							thr = e;
+						}
+					}
+					if (thr != null) {
+						ud.add(s);
+					}
+					cdl.countDown();
+					handleCounter.getAndIncrement();
+				}
+			};
+			handlePool.execute(r);
+		}
+
+		try {
+			cdl.await();
+			handlePool.shutdown();
+		} catch (InterruptedException e) {
+		}
+
+		if (logger.isDebugEnabled()) {
+			String uds = "";
+			for (String s : ud) {
+				uds += "\n" + s;
+			}
+			logger.debug("{} file(s) dw over, {} failed {}", fileList.length, ud.size(), uds);
+		}
 	}
 
 	public void upload() {
@@ -206,6 +225,7 @@ public class TcpClient {
 		CountDownLatch cdl = new CountDownLatch(l.size());
 		for (String s : l) {
 			final String fn = origDir == null || origDir.length() == 0 ? s : s.substring(origDir.length() - 1);
+			final TcpClient owner = this;
 			Runnable r = new Runnable() {
 				@Override
 				public void run() {
@@ -221,16 +241,16 @@ public class TcpClient {
 								}
 							}
 							if (up) {
-								Handler h = new Handler(ip, port, s, fn);
+								UpHandler h = new UpHandler(owner, s, fn);
 								h.run();
-								if (h.result && stat > 0) {
-									ChangeManager.writeClientChangelog(s, h.fileChksum);
+								if (h.isResult() && stat > 0) {
+									ChangeManager.writeClientChangelog(s, h.getFileChksum());
 								}
 								thr = null;
 							}
 							break;
 						} catch (Exception e) {
-							logger.error("handle " + s + " failed, " + e.getMessage());
+							logger.error("up {} with {} failed, {}", path, s, e.getMessage(), e);
 							thr = e;
 						}
 					}
@@ -243,140 +263,19 @@ public class TcpClient {
 			};
 			handlePool.execute(r);
 		}
+
 		try {
 			cdl.await();
 			handlePool.shutdown();
 		} catch (InterruptedException e) {
 		}
-		String uds = "";
-		for (String s : ud) {
-			uds += "\n" + s;
-		}
-		logger.debug("{} file(s) uploaded over, {} failed {}", l.size(), ud.size(), uds);
-	}
 
-	class Handler implements Runnable {
-		private Socket s;
-		private String path;
-		private File file = null;
-		private String fileChksum = null;
-		private long fileSize = 0l;
-		private long fileChunkIndex = 0l;
-		private RandomAccessFile fileRaf = null;
-		private Packet send = null;
-		private Packet recv = null;
-		private boolean result = false;
-
-		public Handler(String ip, int port, String path, String rfilename) throws Exception {
-			this.s = ClientSocket.connect(ip, port);
-			logger.debug("connected to server {}:{} {} for file {}, rfile {}", ip, port, s, path, rfilename);
-			this.path = rfilename;
-			this.file = new File(path);
-			this.fileChksum = Utils.chksum(path);
-			this.fileRaf = new RandomAccessFile(file, "r");
-			this.fileSize = fileRaf.length();
-			this.fileChunkIndex = 0l;
-			logger.debug("local file {}, fileSize {}, fileChksum {}", path, fileSize, fileChksum);
-		}
-
-		private void close() {
-			if (s != null) {
-				ClientSocket.close(s);
+		if (logger.isDebugEnabled()) {
+			String uds = "";
+			for (String s : ud) {
+				uds += "\n" + s;
 			}
-			if (fileRaf != null) {
-				try {
-					fileRaf.close();
-				} catch (IOException e) {
-				}
-			}
-		}
-
-		private void recv() throws Throwable {
-			byte[] hb = new byte[HEADLENGTH];
-			int r = ClientSocket.read(s, hb, 0, 8, timeout);
-			int isz = Integer.valueOf(new String(hb, "UTF-8"));
-			byte[] db = new byte[isz];
-			r = ClientSocket.read(s, db, 0, isz, timeout);
-			recv = Packet.valueOf(db);
-		}
-
-		private void send() throws Throwable {
-			if (send == null) {
-				return;
-			}
-			byte[] db = send.getBytes();
-			String hs = "" + db.length;
-			if (hs.length() < HEADLENGTH) {
-				hs = "00000000".substring(hs.length()) + hs;
-			}
-			byte[] hb = hs.getBytes("UTF-8");
-			ClientSocket.write(s, hb, 0, HEADLENGTH);
-			if (db.length > 0) {
-				ClientSocket.write(s, db, 0, db.length);
-			}
-		}
-
-		@Override
-		public void run() {
-			try {
-				send = new Packet();
-				send.command = Command.UPCHUNK;
-				send.cmdResult = true;
-				send.cmdMesg = null;
-				send.lfilename = path;
-				send.chksum = fileChksum;
-				// send.filesize = fileSize;
-				send.chunkIndex = 0;
-				send.chunkBytes = null;
-				send();
-				logger.debug("first send {}", send);
-				recv();
-				logger.debug("first recv {}", recv);
-				do {
-					if (!recv.cmdResult) {
-						throw new RuntimeException("Remote fail : " + recv.cmdMesg);
-					}
-					if (recv.chunkIndex == Long.MAX_VALUE) {
-						break;
-					}
-
-					if (fileChunkIndex != recv.chunkIndex) {
-						fileChunkIndex = recv.chunkIndex;
-						if (fileChunkIndex > 0) {
-							logger.debug("reset position to {}/{}", fileChunkIndex * CHUNKSIZE, fileSize);
-							fileRaf.seek(fileChunkIndex * CHUNKSIZE);
-						}
-					}
-					send = recv.clone();
-					send.command = Command.UPDATA;
-					send.chunkIndex = fileChunkIndex;
-
-					long readSize = fileSize - fileChunkIndex * CHUNKSIZE;
-					if (readSize > CHUNKSIZE) {
-						readSize = CHUNKSIZE;
-					}
-					if (readSize > 0) {
-						send.chunkBytes = new byte[(int) readSize];
-						int realRead = fileRaf.read(send.chunkBytes);
-						fileChunkIndex++;
-						logger.debug("read {} byts(s), current position {}/{}", realRead, fileChunkIndex * CHUNKSIZE, fileSize);
-					}
-					send();
-					if (readSize == 0) {
-						break;
-					}
-					recv();
-					logger.debug("general recv {}", recv);
-				} while (recv.chunkIndex > 0 && recv.chunkIndex < Long.MAX_VALUE);
-
-				logger.debug("over.");
-				result = true;
-			} catch (Throwable e) {
-				throw new RuntimeException("send or recv Packet failed, " + e.getMessage());
-			} finally {
-				close();
-			}
-
+			logger.debug("{} file(s) up over, {} failed {}", l.size(), ud.size(), uds);
 		}
 	}
 

@@ -28,19 +28,14 @@ public class ChangeManager {
 
 	protected static String basePath = null;
 	protected static String changePath = null;
-	// protected static boolean clientMode = false;
-
-	// public static void setBasePath(String filePath, String changelogPath, boolean clientMode) {
-	// setBasePath(filePath, changelogPath);
-	// ChangeManager.clientMode = clientMode;
-	// }
 
 	public static void setBasePath(String filePath, String changelogPath) {
 		logger.debug("change base path {}, changelogPath {}", filePath, changelogPath);
 		String canonicalFilePath = Utils.getCanonicalPath(filePath);
 		String canonicalChangelogPath = changelogPath == null ? canonicalFilePath : Utils.getCanonicalPath(changelogPath);
 		ChangeManager.basePath = canonicalFilePath + File.separator;
-		ChangeManager.changePath = canonicalChangelogPath + File.separator + DEFAULT_CHANGLOG_DIR + File.separator;
+		ChangeManager.changePath = canonicalFilePath
+		        .equals(canonicalChangelogPath) ? canonicalFilePath + DEFAULT_CHANGLOG_DIR + File.separator : canonicalChangelogPath + File.separator + DEFAULT_CHANGLOG_DIR + File.separator;
 		logger.debug("basePath {}", ChangeManager.basePath);
 		logger.debug("changelogPath {}", ChangeManager.changePath);
 	}

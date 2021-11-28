@@ -92,6 +92,22 @@ public class Utils {
 		return ret;
 	}
 
+	public static boolean fileExists(String path) {
+		File f = new File(path);
+		if (f.exists() && f.isFile()) {
+			return true;
+		}
+		return false;
+	}
+
+	public static boolean dirExists(String path) {
+		File f = new File(path);
+		if (f.exists() && f.isDirectory()) {
+			return true;
+		}
+		return false;
+	}
+
 	public static boolean exists(String path) {
 		return exists(new File(path));
 	}
@@ -116,6 +132,15 @@ public class Utils {
 		if (basename == null)
 			return null;
 		return path.substring(0, path.length() - basename.length());
+	}
+
+	public static String getPwd() {
+		File directory = new File(".");
+		try {
+			return directory.getCanonicalPath() + File.separator;
+		} catch (IOException e) {
+			return null;
+		}
 	}
 
 	public static boolean mkdirsForFile(String path) {
@@ -146,18 +171,18 @@ public class Utils {
 		}
 	}
 
-//	public static boolean createNewFile(String absoluteFile) {
-//		if (!mkdirsForFile(absoluteFile)) {
-//			logger.error("Create directory for file " + absoluteFile + " failed.");
-//			return false;
-//		}
-//		try {
-//			return new File(absoluteFile).createNewFile();
-//		} catch (IOException e) {
-//			logger.error("createNewFile for " + absoluteFile + " IOException:", e);
-//		}
-//		return false;
-//	}
+	// public static boolean createNewFile(String absoluteFile) {
+	// if (!mkdirsForFile(absoluteFile)) {
+	// logger.error("Create directory for file " + absoluteFile + " failed.");
+	// return false;
+	// }
+	// try {
+	// return new File(absoluteFile).createNewFile();
+	// } catch (IOException e) {
+	// logger.error("createNewFile for " + absoluteFile + " IOException:", e);
+	// }
+	// return false;
+	// }
 
 	public static String substring(String str, int beginIndex) {
 		return substring(str, beginIndex, -1);

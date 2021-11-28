@@ -37,6 +37,8 @@ public class TcpServer {
 	protected final int HEADLENGTH = Utils.HEADLENGTH;
 	protected final int EXPIRED_MILLIS = 30 * 1000;
 
+	private TcpServer instance = null;
+
 	/**
 	 * TCP监听端口号.
 	 */
@@ -66,222 +68,6 @@ public class TcpServer {
 	private ServerSocket server = null;
 
 	private volatile boolean alived = false;
-
-	class Handler implements Runnable {
-		private Socket s;
-		private String filename = null;
-		private String filePath = null;
-		// private boolean fileWrite = true;
-		private boolean fileAppend = false;
-		private String fileChksum = null;
-		private long fileChunkIndex = 0l;
-		private FileOutputStream fileOut = null;
-		private boolean fileOver = false;
-		private Packet recv = null;
-		private Packet send = new Packet();
-		private int stat = 2;
-		private boolean result = false;
-
-		public Handler(Socket socket) {
-			this.s = socket;
-			logger.info("connection {} accepted", s);
-		}
-
-		private void close() {
-			logger.info("connection {} closed for {}", s, filename);
-			if (fileOut != null) {
-				try {
-					fileOut.flush();
-					fileOut.close();
-				} catch (IOException e) {
-				}
-			}
-			if (s != null) {
-				ClientSocket.close(s);
-			}
-		}
-
-		public String[] getConf() {
-			File cnf = new File(filePath + ".@{cnf}");
-			if (!cnf.exists()) {
-				return null;
-			}
-
-			FileInputStream is = null;
-			String content = null;
-			try {
-				is = new FileInputStream(cnf);
-				int sz = is.available();
-				if (sz <= 0)
-					return null;
-
-				byte[] contentBytes = new byte[sz];
-				int rz = is.read(contentBytes, 0, sz);
-				if (rz < sz)
-					logger.warn("readFileBytes read " + rz + "/" + sz + ", not complete.");
-				content = new String(contentBytes);
-				return content.split("[,]");
-			} catch (IOException e) {
-			} finally {
-				if (is != null) {
-					try {
-						is.close();
-					} catch (IOException e) {
-					}
-				}
-			}
-			return null;
-		}
-
-		public void delConf() {
-			File cnf = new File(filePath + ".@{cnf}");
-			if (!cnf.exists()) {
-				return;
-			}
-			cnf.delete();
-		}
-
-		public void writeConf(String content) throws IOException {
-			File cnf = new File(filePath + ".@{cnf}");
-			BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), DEFAULT_FILE_ENCODING));
-			writer.write(content);
-			writer.close();
-			writer = null;
-		}
-
-		public void writeBytes(byte[] contents) throws IOException {
-			if (fileOut == null) {
-				File file = new File(filePath);
-				fileOut = new FileOutputStream(file.getAbsolutePath(), fileAppend);
-			}
-			if (contents == null || contents.length == 0) {
-				return;
-			}
-			fileOut.write(contents);
-			fileOut.flush();
-		}
-
-		private void recv() throws Throwable {
-			byte[] hb = new byte[HEADLENGTH];
-			int r = ClientSocket.read(s, hb, 0, 8, timeout);
-			int isz = Integer.valueOf(new String(hb, "UTF-8"));
-			byte[] db = new byte[isz];
-			r = ClientSocket.read(s, db, 0, isz, timeout);
-			recv = Packet.valueOf(db);
-		}
-
-		private void send() throws Throwable {
-			if (send == null) {
-				return;
-			}
-			byte[] db = send.getBytes();
-			String hs = "" + db.length;
-			if (hs.length() < HEADLENGTH) {
-				hs = "00000000".substring(hs.length()) + hs;
-			}
-			byte[] hb = hs.getBytes("UTF-8");
-			ClientSocket.write(s, hb, 0, HEADLENGTH);
-			if (db.length > 0) {
-				ClientSocket.write(s, db, 0, db.length);
-			}
-		}
-
-		private void call() {
-			if (recv.command.equals(Command.UPCHUNK)) {
-				filename = recv.lfilename;
-				filePath = ChangeManager.getBaseDir() + recv.lfilename;
-				fileChksum = recv.chksum;
-				
-				send = recv.clone();
-				send.lfilename = null;
-				if (!Utils.mkdirsForFile(filePath)) {
-					send.cmdResult = false;
-					send.cmdMesg = "mdkir for " + filePath + " failed.";
-					logger.error(send.cmdMesg);
-					return;
-				}
-				if (Utils.exists(filePath)) {
-					String[] ci = getConf();
-					if (ci == null) {
-						// if (fileChksum.equals(Utils.chksum(path))) {
-						stat = isSync() ? ChangeManager.getServChanged(filename, fileChksum) : fileChksum.equals(Utils.chksum(filePath)) ? 0 : 2;
-						if (stat == 0 || stat == 1) {
-							fileOver = true;
-							// fileWrite = false;
-							send.chunkIndex = Long.MAX_VALUE;
-							send.cmdMesg = "file " + filename + " exist and no changes.";
-							logger.info(send.cmdMesg);
-							if (isSync() && stat == 1) {
-								ChangeManager.writeServChangelog(filename, fileChksum);
-							}
-							return;
-						}
-					} else if (fileChksum.equals(ci[1])) {
-						fileAppend = true;
-						fileChunkIndex = Long.valueOf(ci[0]) + 1;
-						logger.debug("file {} continue to transfer.", filename);
-					} else {
-						fileAppend = false;
-						fileChunkIndex = 0;
-					}
-				} else {
-					fileAppend = false;
-					fileChunkIndex = 0;
-				}
-				send.chunkIndex = fileChunkIndex;
-				logger.info("file {} expect chunkIndex {}", filename, send.chunkIndex);
-			} else if (recv.command.equals(Command.UPDATA)) {
-				if (recv.chunkBytes == null || recv.chunkBytes.length == 0) {
-					delConf();
-					fileOver = true;
-					logger.debug("file {} recv empty, maybe complete.", filename);
-
-					send = recv.clone();
-					send.chunkIndex = Long.MAX_VALUE;
-					send.cmdMesg = "file " + filename + " write over.";
-					if (isSync()) {
-						ChangeManager.writeServChangelog(filename, fileChksum);
-					}
-				} else {
-					send = recv.clone();
-					try {
-						writeBytes(recv.chunkBytes);
-						logger.debug("file {} write chunkIndex {}, {} byte(s)", filename, fileChunkIndex, recv.chunkBytes.length);
-						fileChunkIndex++;
-						writeConf(fileChunkIndex + "," + fileChksum);
-						send.chunkIndex = fileChunkIndex;
-					} catch (IOException e) {
-						send.cmdResult = false;
-						send.cmdMesg = "file " + filename + " write failed, " + e.getMessage();
-						logger.error(send.cmdMesg);
-						return;
-					}
-				}
-			}
-		}
-
-		@Override
-		public void run() {
-			try {
-				while (!fileOver && send.cmdResult) {
-					recv();
-					logger.debug("Recv [{}], {}", recv, s);
-					call();
-					send();
-					logger.debug("Sended [{}], {}.", send, s);
-				}
-			} catch (Throwable th) {
-				logger.error("run failed. {}", th);
-			} finally {
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-				}
-				close();
-			}
-		}
-
-	}
 
 	/**
 	 * @param port
@@ -321,6 +107,7 @@ public class TcpServer {
 		}
 
 		ChangeManager.setBasePath(this.dir, null);
+		instance = this;
 	}
 
 	public void start() {
@@ -351,7 +138,7 @@ public class TcpServer {
 							logger.debug("Accepted connection {}", s);
 							s.setTcpNoDelay(true);
 							s.setSoLinger(true, 10);
-							handlePool.execute(new Handler(s));
+							handlePool.execute(new Filter(instance, s));
 						}
 					} catch (Throwable thr) {
 						if (alived) {
