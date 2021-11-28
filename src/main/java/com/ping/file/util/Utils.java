@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +73,25 @@ public class Utils {
 		}
 	}
 
+	public static String[] split(String str, int averageSize) {
+		if (str == null || str.length() == 0) {
+			return new String[0];
+		}
+		if (averageSize >= str.length()) {
+			return new String[] { str };
+		}
+		int count = (int) Math.ceil(str.length() / (float) averageSize);
+		String[] ret = new String[count];
+		for (int i = 0; i < count; i++) {
+			if ((i + 1) * averageSize < str.length()) {
+				ret[i] = str.substring(i * averageSize, (i + 1) * averageSize);
+			} else {
+				ret[i] = str.substring(i * averageSize);
+			}
+		}
+		return ret;
+	}
+
 	public static boolean exists(String path) {
 		return exists(new File(path));
 	}
@@ -98,13 +118,18 @@ public class Utils {
 		return path.substring(0, path.length() - basename.length());
 	}
 
-	public static boolean mkdirsForFile(String absoluteFile) {
-		String parent = getDirname(absoluteFile);
-		return mkdirs(parent);
+	public static boolean mkdirsForFile(String path) {
+		String parent = getDirname(getCanonicalPath(path));
+		if (!mkdirs(parent)) {
+			if (!mkdirs(parent)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
-	public static boolean mkdirs(String absoluteDirectory) {
-		return mkdirs(new File(absoluteDirectory));
+	public static boolean mkdirs(String dir) {
+		return mkdirs(new File(dir));
 	}
 
 	public static boolean mkdirs(File dir) {
@@ -112,28 +137,106 @@ public class Utils {
 			return false;
 		if (dir.exists()) {
 			if (!dir.isDirectory()) {
-				logger.error("The directory " + dir.getAbsolutePath() + " exist and not a directory, cannot create dir.");
 				return false;
 			} else {
 				return true;
 			}
+		} else {
+			return dir.mkdirs();
 		}
-		boolean result = dir.mkdirs();
-		logger.debug("The directory {} not exist, mkdirs {}", dir.getAbsolutePath(), result);
-		return result;
 	}
 
-	public static boolean createNewFile(String absoluteFile) {
-		if (!mkdirsForFile(absoluteFile)) {
-			logger.error("Create directory for file " + absoluteFile + " failed.");
-			return false;
+//	public static boolean createNewFile(String absoluteFile) {
+//		if (!mkdirsForFile(absoluteFile)) {
+//			logger.error("Create directory for file " + absoluteFile + " failed.");
+//			return false;
+//		}
+//		try {
+//			return new File(absoluteFile).createNewFile();
+//		} catch (IOException e) {
+//			logger.error("createNewFile for " + absoluteFile + " IOException:", e);
+//		}
+//		return false;
+//	}
+
+	public static String substring(String str, int beginIndex) {
+		return substring(str, beginIndex, -1);
+	}
+
+	public static String substring(String str, int beginIndex, int endIndex) {
+		return substring(str, beginIndex, endIndex, null);
+	}
+
+	public static String substring(String str, int beginIndex, int endIndex, String nullDefaultValue) {
+		if ((str == null || str.length() == 0) && nullDefaultValue != null) {
+			return nullDefaultValue;
 		}
+		int s = str.length();
+		if (beginIndex < 0) {
+			beginIndex = 0;
+		}
+		if (endIndex < 0) {
+			endIndex = s;
+		}
+		if (beginIndex > s) {
+			beginIndex = s;
+		}
+		if (endIndex > s) {
+			endIndex = s;
+		}
+		if (beginIndex > endIndex) {
+			beginIndex = endIndex;
+		}
+		String i = str.substring(beginIndex, endIndex);
+		if ((i == null || i.length() == 0) && nullDefaultValue != null) {
+			return nullDefaultValue;
+		} else {
+			return i;
+		}
+	}
+
+	public static void getFiles(String path, List<String> list) {
+		File file = new File(path);
+		if (file.isDirectory()) {
+			File[] files = file.listFiles();
+			for (int i = 0; i < files.length; i++) {
+				if (files[i].isDirectory()) {
+					getFiles(files[i].getPath(), list);
+				} else {
+					list.add(files[i].getPath());
+				}
+			}
+		} else if (file.isFile()) {
+			list.add(file.getPath());
+		} else if (!file.exists()) {
+			logger.error("{} not exists or cannot read.", path);
+		} else {
+			logger.warn("Unsupprted file type (not common file and directory) for {}", path);
+		}
+	}
+
+	public static String getCanonicalPath(String path) {
 		try {
-			return new File(absoluteFile).createNewFile();
+			return (new File(path == null ? "" : path)).getCanonicalPath();
 		} catch (IOException e) {
-			logger.error("createNewFile for " + absoluteFile + " IOException:", e);
+			logger.error("getCanonicalPath {} failed, {}", path, e.getMessage());
+			throw new RuntimeException("get canonical path '" + path + "' failed, " + e.getMessage(), e);
 		}
-		return false;
 	}
 
+	public static void main(String[] args) throws IOException {
+		File f1 = new File(".\\test1.txt");
+		File f2 = new File("D:\\git\\pingp\\test1.txt");
+		System.out.println(File.separator);
+		System.out.println(getCanonicalPath(null));
+		System.out.println("---------------------------------");
+		System.out.println(f1.getPath());
+		System.out.println(f1.getAbsolutePath());
+		System.out.println(f1.getCanonicalPath());
+		System.out.println("---------------------------------");
+		System.out.println(f2.getPath());
+		System.out.println(f2.getAbsolutePath());
+		System.out.println(f2.getCanonicalPath());
+		System.out.println("---------------------------------");
+	}
 }

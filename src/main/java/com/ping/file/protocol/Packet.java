@@ -20,9 +20,9 @@ public class Packet implements Serializable {
 	public String cmdMesg;
 
 	public String lfilename;
-//	public String rfilename;
+	// public String rfilename;
 	public String chksum;
-//	public long filesize;
+	// public long filesize;
 	public long chunkIndex;
 	public byte[] chunkBytes;
 
@@ -43,12 +43,12 @@ public class Packet implements Serializable {
 		builder.append(cmdMesg);
 		builder.append(", lfilename=");
 		builder.append(lfilename);
-//		builder.append(", rfilename=");
-//		builder.append(rfilename);
+		// builder.append(", rfilename=");
+		// builder.append(rfilename);
 		builder.append(", chksum=");
 		builder.append(chksum);
-//		builder.append(", filesize=");
-//		builder.append(filesize);
+		// builder.append(", filesize=");
+		// builder.append(filesize);
 		builder.append(", chunkIndex=");
 		builder.append(chunkIndex);
 		builder.append(", chunkBytes.length=");
@@ -62,9 +62,9 @@ public class Packet implements Serializable {
 		p.cmdResult = true;
 		p.cmdMesg = null;
 		p.lfilename = this.lfilename;
-//		p.rfilename = this.rfilename;
+		// p.rfilename = this.rfilename;
 		p.chksum = null;
-//		p.filesize = this.filesize;
+		// p.filesize = this.filesize;
 		p.chunkIndex = this.chunkIndex;
 		p.chunkBytes = null;
 		return p;

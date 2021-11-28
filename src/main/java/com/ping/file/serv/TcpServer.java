@@ -69,7 +69,8 @@ public class TcpServer {
 
 	class Handler implements Runnable {
 		private Socket s;
-		private String path = null;
+		private String filename = null;
+		private String filePath = null;
 		// private boolean fileWrite = true;
 		private boolean fileAppend = false;
 		private String fileChksum = null;
@@ -87,7 +88,7 @@ public class TcpServer {
 		}
 
 		private void close() {
-			logger.info("connection {} closed for {}", s, path);
+			logger.info("connection {} closed for {}", s, filename);
 			if (fileOut != null) {
 				try {
 					fileOut.flush();
@@ -100,40 +101,8 @@ public class TcpServer {
 			}
 		}
 
-		public boolean exists(String path) {
-			return Utils.exists(path);
-		}
-
-		public boolean exists(File path) {
-			return Utils.exists(path);
-		}
-
-		public String getBasename(String path) {
-			return Utils.getBasename(path);
-		}
-
-		public String getDirname(String path) {
-			return Utils.getDirname(path);
-		}
-
-		public boolean mkdirsForFile(String absoluteFile) {
-			return Utils.mkdirsForFile(absoluteFile);
-		}
-
-		public boolean mkdirs(String absoluteDirectory) {
-			return Utils.mkdirs(absoluteDirectory);
-		}
-
-		public boolean mkdirs(File dir) {
-			return Utils.mkdirs(dir);
-		}
-
-		public boolean createNewFile(String absoluteFile) {
-			return Utils.createNewFile(absoluteFile);
-		}
-
 		public String[] getConf() {
-			File cnf = new File(path + ".@{cnf}");
+			File cnf = new File(filePath + ".@{cnf}");
 			if (!cnf.exists()) {
 				return null;
 			}
@@ -165,7 +134,7 @@ public class TcpServer {
 		}
 
 		public void delConf() {
-			File cnf = new File(path + ".@{cnf}");
+			File cnf = new File(filePath + ".@{cnf}");
 			if (!cnf.exists()) {
 				return;
 			}
@@ -173,7 +142,7 @@ public class TcpServer {
 		}
 
 		public void writeConf(String content) throws IOException {
-			File cnf = new File(path + ".@{cnf}");
+			File cnf = new File(filePath + ".@{cnf}");
 			BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), DEFAULT_FILE_ENCODING));
 			writer.write(content);
 			writer.close();
@@ -182,7 +151,7 @@ public class TcpServer {
 
 		public void writeBytes(byte[] contents) throws IOException {
 			if (fileOut == null) {
-				File file = new File(path);
+				File file = new File(filePath);
 				fileOut = new FileOutputStream(file.getAbsolutePath(), fileAppend);
 			}
 			if (contents == null || contents.length == 0) {
@@ -218,39 +187,39 @@ public class TcpServer {
 		}
 
 		private void call() {
-			if (recv.command.equals(Command.CONFIRMCHUNK)) {
+			if (recv.command.equals(Command.UPCHUNK)) {
+				filename = recv.lfilename;
+				filePath = ChangeManager.getBaseDir() + recv.lfilename;
 				fileChksum = recv.chksum;
-				path = dir + "//" + recv.lfilename;
+				
 				send = recv.clone();
-					send.lfilename = null;
-					if (!mkdirsForFile(path)) {
-						if (!mkdirsForFile(path)) {
-							send.cmdResult = false;
-							send.cmdMesg = "mdkir for " + path + " failed.";
-							logger.error(send.cmdMesg);
-							return;
-						}
-					}
-				if (exists(path)) {
+				send.lfilename = null;
+				if (!Utils.mkdirsForFile(filePath)) {
+					send.cmdResult = false;
+					send.cmdMesg = "mdkir for " + filePath + " failed.";
+					logger.error(send.cmdMesg);
+					return;
+				}
+				if (Utils.exists(filePath)) {
 					String[] ci = getConf();
 					if (ci == null) {
 						// if (fileChksum.equals(Utils.chksum(path))) {
-						stat = isSync() ? ChangeManager.getChanged(path, fileChksum) : fileChksum.equals(Utils.chksum(path)) ? 0 : 2;
+						stat = isSync() ? ChangeManager.getServChanged(filename, fileChksum) : fileChksum.equals(Utils.chksum(filePath)) ? 0 : 2;
 						if (stat == 0 || stat == 1) {
 							fileOver = true;
 							// fileWrite = false;
 							send.chunkIndex = Long.MAX_VALUE;
-							send.cmdMesg = "file " + path + " exist and no changes.";
+							send.cmdMesg = "file " + filename + " exist and no changes.";
 							logger.info(send.cmdMesg);
-							if (isSync() && (stat == 1)) {
-								ChangeManager.writeChange(path, fileChksum);
+							if (isSync() && stat == 1) {
+								ChangeManager.writeServChangelog(filename, fileChksum);
 							}
 							return;
 						}
 					} else if (fileChksum.equals(ci[1])) {
 						fileAppend = true;
 						fileChunkIndex = Long.valueOf(ci[0]) + 1;
-						logger.debug("file {} continue to transfer.", path);
+						logger.debug("file {} continue to transfer.", filename);
 					} else {
 						fileAppend = false;
 						fileChunkIndex = 0;
@@ -260,30 +229,30 @@ public class TcpServer {
 					fileChunkIndex = 0;
 				}
 				send.chunkIndex = fileChunkIndex;
-				logger.info("file {} expect chunkIndex {}", path, send.chunkIndex);
-			} else if (recv.command.equals(Command.UPLOADFILE)) {
+				logger.info("file {} expect chunkIndex {}", filename, send.chunkIndex);
+			} else if (recv.command.equals(Command.UPDATA)) {
 				if (recv.chunkBytes == null || recv.chunkBytes.length == 0) {
 					delConf();
 					fileOver = true;
-					logger.debug("file {} recv empty, maybe complete.", path);
+					logger.debug("file {} recv empty, maybe complete.", filename);
 
 					send = recv.clone();
 					send.chunkIndex = Long.MAX_VALUE;
-					send.cmdMesg = "file " + path + " write over.";
+					send.cmdMesg = "file " + filename + " write over.";
 					if (isSync()) {
-						ChangeManager.writeChange(path, fileChksum);
+						ChangeManager.writeServChangelog(filename, fileChksum);
 					}
 				} else {
 					send = recv.clone();
 					try {
 						writeBytes(recv.chunkBytes);
-						logger.debug("file {} write chunkIndex {}, {} byte(s)", path, fileChunkIndex, recv.chunkBytes.length);
+						logger.debug("file {} write chunkIndex {}, {} byte(s)", filename, fileChunkIndex, recv.chunkBytes.length);
 						fileChunkIndex++;
 						writeConf(fileChunkIndex + "," + fileChksum);
 						send.chunkIndex = fileChunkIndex;
 					} catch (IOException e) {
 						send.cmdResult = false;
-						send.cmdMesg = "file " + path + " write failed, " + e.getMessage();
+						send.cmdMesg = "file " + filename + " write failed, " + e.getMessage();
 						logger.error(send.cmdMesg);
 						return;
 					}
@@ -351,7 +320,7 @@ public class TcpServer {
 			this.sync = propties.sync;
 		}
 
-		ChangeManager.setBasePath(this.dir);
+		ChangeManager.setBasePath(this.dir, null);
 	}
 
 	public void start() {

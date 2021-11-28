@@ -91,8 +91,8 @@ public class TcpClient {
 		} else if (propties != null) {
 			this.sync = propties.sync;
 		}
-		ChangeManager.setBasePath(System.getProperty("user.home"));
-
+		
+		ChangeManager.setBasePath(null, System.getProperty("user.home"));
 		this.handlePool = Executors.newFixedThreadPool(maxHandleThreads, new NamedThreadFactory("Handler"));
 	}
 
@@ -100,51 +100,51 @@ public class TcpClient {
 		return sync;
 	}
 
-	public boolean exists(String path) {
-		return exists(new File(path));
-	}
-
-	public boolean exists(File path) {
-		return path.exists();
-	}
-
-	public String getBasename(String path) {
-		if (path == null || path.length() == 0)
-			return null;
-		String[] names = path.split("[\\\\/]");
-		if (names == null || names.length == 0)
-			return null;
-		return names[names.length - 1];
-	}
-
-	public String getDirname(String path) {
-		if (path == null || path.length() == 0)
-			return null;
-		String basename = getBasename(path);
-		if (basename == null)
-			return null;
-		return path.substring(0, path.length() - basename.length());
-	}
-
-	public void getFiles(String path, List<String> list) {
-		File file = new File(path);
-		if (file.isDirectory()) {
-			File[] files = file.listFiles();
-			for (int i = 0; i < files.length; i++) {
-				if (files[i].isDirectory()) {
-					getFiles(files[i].getPath(), list);
-				} else {
-					list.add(files[i].getPath());
-				}
-			}
-		} else if (file.isFile()) {
-			list.add(file.getPath());
-		} else if (!file.exists()) {
-			logger.error("{} not exists or cannot read.", path);
-		} else {
-			logger.warn("Unsupprted file type (not common file and directory) for {}", path);
-		}
-	}
+//	public boolean exists(String path) {
+//		return exists(new File(path));
+//	}
+//
+//	public boolean exists(File path) {
+//		return path.exists();
+//	}
+//
+//	public String getBasename(String path) {
+//		if (path == null || path.length() == 0)
+//			return null;
+//		String[] names = path.split("[\\\\/]");
+//		if (names == null || names.length == 0)
+//			return null;
+//		return names[names.length - 1];
+//	}
+//
+//	public String getDirname(String path) {
+//		if (path == null || path.length() == 0)
+//			return null;
+//		String basename = getBasename(path);
+//		if (basename == null)
+//			return null;
+//		return path.substring(0, path.length() - basename.length());
+//	}
+//
+//	public void getFiles(String path, List<String> list) {
+//		File file = new File(path);
+//		if (file.isDirectory()) {
+//			File[] files = file.listFiles();
+//			for (int i = 0; i < files.length; i++) {
+//				if (files[i].isDirectory()) {
+//					getFiles(files[i].getPath(), list);
+//				} else {
+//					list.add(files[i].getPath());
+//				}
+//			}
+//		} else if (file.isFile()) {
+//			list.add(file.getPath());
+//		} else if (!file.exists()) {
+//			logger.error("{} not exists or cannot read.", path);
+//		} else {
+//			logger.warn("Unsupprted file type (not common file and directory) for {}", path);
+//		}
+//	}
 
 	public void startPerct() {
 		System.out.print("0");
@@ -187,7 +187,7 @@ public class TcpClient {
 
 	public void upload() {
 		List<String> l = new ArrayList<String>();
-		getFiles(path, l);
+		Utils.getFiles(path, l);
 		logger.debug("Locate {} file(s) for {} .", l.size(), path);
 		if (l.size() == 0) {
 			return;
@@ -196,9 +196,9 @@ public class TcpClient {
 		File f = new File(path);
 		String origDir = "";
 		if (f.isFile()) {
-			origDir = getDirname(path);
+			origDir = Utils.getDirname(path);
 		} else if (f.isDirectory()) {
-			origDir = path.substring(0, path.length() - getBasename(path).length());
+			origDir = path.substring(0, path.length() - Utils.getBasename(path).length());
 		}
 		List<String> ud = new ArrayList<String>();
 		totalCounter = l.size();
@@ -215,7 +215,7 @@ public class TcpClient {
 							int stat = -1;
 							boolean up = true;
 							if (isSync()) {
-								stat = ChangeManager.getChanged(s);
+								stat = ChangeManager.getClientChanged(s);
 								if (stat == 0) {
 									up = false;
 								}
@@ -224,7 +224,7 @@ public class TcpClient {
 								Handler h = new Handler(ip, port, s, fn);
 								h.run();
 								if (h.result && stat > 0) {
-									ChangeManager.writeChange(s, h.fileChksum);
+									ChangeManager.writeClientChangelog(s, h.fileChksum);
 								}
 								thr = null;
 							}
@@ -320,7 +320,7 @@ public class TcpClient {
 		public void run() {
 			try {
 				send = new Packet();
-				send.command = Command.CONFIRMCHUNK;
+				send.command = Command.UPCHUNK;
 				send.cmdResult = true;
 				send.cmdMesg = null;
 				send.lfilename = path;
@@ -348,7 +348,7 @@ public class TcpClient {
 						}
 					}
 					send = recv.clone();
-					send.command = Command.UPLOADFILE;
+					send.command = Command.UPDATA;
 					send.chunkIndex = fileChunkIndex;
 
 					long readSize = fileSize - fileChunkIndex * CHUNKSIZE;
