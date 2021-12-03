@@ -28,24 +28,26 @@ import com.ping.file.util.Utils;
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class UpHandler implements Runnable {
-	private static final Logger logger = LoggerFactory.getLogger(UpHandler.class);
+class ClientUpHandler implements Runnable {
+	private static final Logger logger = LoggerFactory.getLogger(ClientUpHandler.class);
 
 	private TcpClient owner;
 
 	private Socket s;
+	private Long chunkSize;
 	private String path;
 	private File file = null;
 	private String fileChksum = null;
 	private long fileSize = 0l;
-	private long fileChunkIndex = 0l;
+	private long filePos = 0l;
 	private RandomAccessFile fileRaf = null;
 	private Packet send = null;
 	private Packet recv = null;
 	private boolean result = false;
 
-	public UpHandler(TcpClient owner, String path, String rfilename) throws Exception {
+	public ClientUpHandler(TcpClient owner, String path, String rfilename) throws Exception {
 		this.owner = owner;
+		this.chunkSize = owner.chunkSize == null ? Utils.DEFAULT_CHUNK_SIZE : owner.chunkSize;
 		this.s = ClientSocket.connect(owner.ip, owner.port);
 		logger.debug("connected to server {}:{} {} for file {}, rfile {}", owner.ip, owner.port, s, path, rfilename);
 		this.path = rfilename;
@@ -53,59 +55,20 @@ class UpHandler implements Runnable {
 		this.fileChksum = Utils.chksum(path);
 		this.fileRaf = new RandomAccessFile(file, "r");
 		this.fileSize = fileRaf.length();
-		this.fileChunkIndex = 0l;
+		this.filePos = 0l;
 		logger.debug("local file {}, fileSize {}, fileChksum {}", path, fileSize, fileChksum);
 	}
 
-//	public TcpClient getOwner() {
-//		return owner;
-//	}
-//
-//	public void setOwner(TcpClient owner) {
-//		this.owner = owner;
-//	}
-//
-//	public String getPath() {
-//		return path;
-//	}
-//
-//	public void setPath(String path) {
-//		this.path = path;
-//	}
-//
 	public String getFileChksum() {
 		return fileChksum;
 	}
-//
-//	public void setFileChksum(String fileChksum) {
-//		this.fileChksum = fileChksum;
-//	}
-//
-//	public long getFileSize() {
-//		return fileSize;
-//	}
-//
-//	public void setFileSize(long fileSize) {
-//		this.fileSize = fileSize;
-//	}
-//
-//	public long getFileChunkIndex() {
-//		return fileChunkIndex;
-//	}
-//
-//	public void setFileChunkIndex(long fileChunkIndex) {
-//		this.fileChunkIndex = fileChunkIndex;
-//	}
 
 	public boolean isResult() {
 		return result;
 	}
 
-//	public void setResult(boolean result) {
-//		this.result = result;
-//	}
-
 	private void close() {
+		logger.debug("connection {} closed for {}", s, path);
 		if (s != null) {
 			ClientSocket.close(s);
 		}
@@ -117,7 +80,6 @@ class UpHandler implements Runnable {
 		}
 	}
 
-
 	@Override
 	public void run() {
 		try {
@@ -127,48 +89,55 @@ class UpHandler implements Runnable {
 			send.cmdMesg = null;
 			send.filename = path;
 			send.chksum = fileChksum;
-			send.chunkIndex = 0;
+			// send.filepos = 0L;
+			send.filesize = fileSize;
 			send.chunkBytes = null;
+			send.chunkSize = this.chunkSize;
 			ClientSocket.sendPacket(s, send);
 			logger.debug("first send {}", send);
 			recv = ClientSocket.recvPacket(s, owner.timeout);
 			logger.debug("first recv {}", recv);
-			do {
+			for (;;) {
 				if (!recv.cmdResult) {
 					throw new RuntimeException("Remote fail : " + recv.cmdMesg);
 				}
-				if (recv.chunkIndex == Long.MAX_VALUE) {
+				if (recv.filepos != null && recv.filepos == Long.MAX_VALUE) {
 					break;
 				}
 
-				if (fileChunkIndex != recv.chunkIndex) {
-					fileChunkIndex = recv.chunkIndex;
-					if (fileChunkIndex > 0) {
-						logger.debug("reset position to {}/{}", fileChunkIndex * owner.CHUNKSIZE, fileSize);
-						fileRaf.seek(fileChunkIndex * owner.CHUNKSIZE);
+				if (recv.filepos != null && filePos != recv.filepos) {
+					filePos = recv.filepos;
+					if (filePos > 0) {
+						logger.debug("reset position to {}/{}", filePos, fileSize);
+						fileRaf.seek(filePos);
 					}
 				}
 				send = recv.clone();
 				send.command = Command.UPDATA;
-				send.chunkIndex = fileChunkIndex;
+				send.filepos = null;
 
-				long readSize = fileSize - fileChunkIndex * owner.CHUNKSIZE;
-				if (readSize > owner.CHUNKSIZE) {
-					readSize = owner.CHUNKSIZE;
+				long readSize = fileSize - filePos;
+				if (readSize > chunkSize) {
+					readSize = chunkSize;
 				}
 				if (readSize > 0) {
 					send.chunkBytes = new byte[(int) readSize];
 					int realRead = fileRaf.read(send.chunkBytes);
-					fileChunkIndex++;
-					logger.debug("read {} byts(s), current position {}/{}", realRead, fileChunkIndex * owner.CHUNKSIZE, fileSize);
+					if (realRead != readSize) {
+						throw new RuntimeException("expected read " + readSize + " but " + realRead);
+					}
+					filePos += realRead;
+					logger.debug("read {} byts(s), current position {}/{}", realRead, filePos, fileSize);
 				}
 				ClientSocket.sendPacket(s, send);
+				logger.debug("send {}", send);
 				if (readSize == 0) {
 					break;
 				}
+				
 				recv = ClientSocket.recvPacket(s, owner.timeout);
-				logger.debug("general recv {}", recv);
-			} while (recv.chunkIndex > 0 && recv.chunkIndex < Long.MAX_VALUE);
+				logger.debug("recv {}", recv);
+			}
 
 			logger.debug("file {} upload over.", path);
 			result = true;

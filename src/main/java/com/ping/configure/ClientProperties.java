@@ -21,7 +21,9 @@ public class ClientProperties {
 	public long retry = 0;
 	public long timeout = 0;
 	public long maxThreads = Runtime.getRuntime().availableProcessors() * 4;
+	public long chunkSize = 0;
 	public boolean sync = true;
+	public boolean debug = false;
 
 	public String getIp() {
 		return ip;
@@ -63,12 +65,28 @@ public class ClientProperties {
 		this.maxThreads = maxThreads;
 	}
 
+	public long getChunkSize() {
+		return chunkSize;
+	}
+
+	public void setChunkSize(long chunkSize) {
+		this.chunkSize = chunkSize;
+	}
+
 	public boolean isSync() {
 		return sync;
 	}
 
 	public void setSync(boolean sync) {
 		this.sync = sync;
+	}
+
+	public boolean isDebug() {
+		return debug;
+	}
+
+	public void setDebug(boolean debug) {
+		this.debug = debug;
 	}
 
 }

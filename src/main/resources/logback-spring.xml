@@ -2,13 +2,13 @@
 <configuration>
 	<property name="logger.appid" value="pingp" />
 	<property name="logger.dir" value="logs" />
-	<property name="logger.stdoutloglevel" value="DEBUG" />
+	<property name="logger.stdoutloglevel" value="INFO" />
 	<property name="logger.rootloglevel" value="DEBUG" />
 	<property name="logger.thirdloglevel" value="ERROR" />
 	<contextName>${logger.appid}</contextName>
 	
 	<logger name="org.springframework" level="WARN" />
-	<logger name="com.ping.file.client" level="DEBUG" />
+	<logger name="com.ping.file.client" level="WARN" />
 	
 	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
 		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">

@@ -50,9 +50,22 @@ public class Utils {
 	}
 
 	private final static Base64.Encoder encoder = Base64.getEncoder();
+	private final static Base64.Decoder decoder = Base64.getDecoder();
 
-	private static String getBase64(String name) throws UnsupportedEncodingException {
-		return encoder.encodeToString(name.getBytes("UTF-8"));
+	public static String encodeBase64(String name) {
+		try {
+			return encoder.encodeToString(name.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			throw new RuntimeException("encode with base64 failed, " + e.getMessage(), e);
+		}
+	}
+
+	public static String decodeBase64(String str) {
+		try {
+			return new String(decoder.decode(str), "UTF-8");
+		} catch (UnsupportedEncodingException e) {
+			throw new RuntimeException("decode with base64 failed, " + e.getMessage(), e);
+		}
 	}
 
 	private static String getHex(String name) {
@@ -67,7 +80,7 @@ public class Utils {
 
 	public static String getEncode(String name) {
 		try {
-			return getBase64(name);
+			return encodeBase64(name);
 		} catch (Throwable thr) {
 			return getHex(name);
 		}
@@ -114,6 +127,14 @@ public class Utils {
 
 	public static boolean exists(File path) {
 		return path.exists();
+	}
+
+	public static long filesize(String path) {
+		File f = new File(path);
+		if (!f.exists() || !f.isFile()) {
+			return -1;
+		}
+		return f.length();
 	}
 
 	public static String getBasename(String path) {
@@ -183,6 +204,16 @@ public class Utils {
 	// }
 	// return false;
 	// }
+
+	public static boolean equals(String o1, String o2) {
+		if (o1 == null && o2 == null) {
+			return true;
+		}
+		if (o1 == null || o2 == null) {
+			return false;
+		}
+		return o1.equals(o2);
+	}
 
 	public static String substring(String str, int beginIndex) {
 		return substring(str, beginIndex, -1);

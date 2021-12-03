@@ -11,6 +11,8 @@ package com.ping.file.client;
 
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import com.ping.file.protocol.Command;
 import com.ping.file.protocol.Packet;
 import com.ping.file.util.ClientSocket;
+import com.ping.file.util.Utils;
 
 /**
  * 下载处理器.
@@ -25,25 +28,24 @@ import com.ping.file.util.ClientSocket;
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class DwlistHandler implements Runnable {
-	private static final Logger logger = LoggerFactory.getLogger(DwlistHandler.class);
+class ClientDwlistHandler implements Runnable {
+	private static final Logger logger = LoggerFactory.getLogger(ClientDwlistHandler.class);
 
 	private TcpClient owner;
 
 	private Socket s;
+	private Long chunkSize;
 	private String path;
 	private ByteBuffer fileBytes;
-	// private long fileChunkIndex = 0l;
 	private Packet send = null;
 	private Packet recv = null;
-	// private boolean result = false;
 
-	public DwlistHandler(TcpClient owner, String path) throws Exception {
+	public ClientDwlistHandler(TcpClient owner, String path) throws Exception {
 		this.owner = owner;
+		this.chunkSize = owner.chunkSize == null ? Utils.DEFAULT_CHUNK_SIZE : owner.chunkSize;
 		this.s = ClientSocket.connect(owner.ip, owner.port);
 		logger.debug("connected to server {}:{} {} for file {}", owner.ip, owner.port, s, path);
 		this.path = path;
-		// this.fileChunkIndex = 0l;
 		logger.debug("local file {}", path);
 	}
 
@@ -56,6 +58,7 @@ class DwlistHandler implements Runnable {
 	}
 
 	private void close() {
+		logger.debug("connection {} closed for {}", s, path);
 		if (s != null) {
 			ClientSocket.close(s);
 		}
@@ -67,13 +70,15 @@ class DwlistHandler implements Runnable {
 			send = new Packet();
 			send.command = Command.DWLIST;
 			send.filename = path;
+			send.chunkSize = this.chunkSize;
 			ClientSocket.sendPacket(s, send);
 			logger.debug("first send {}", send);
 			recv = ClientSocket.recvPacket(s, owner.timeout);
-			fileBytes = ByteBuffer.allocate(1024);
+//			fileBytes = ByteBuffer.allocate(1024*1024*1024);
+			fileBytes = ByteBuffer.allocate((int) (recv.filesize > 0 ? recv.filesize : 1024));
 			logger.debug("first recv {}", recv);
 			while (recv.cmdResult) {
-				if (recv.chunkIndex == Long.MAX_VALUE) {
+				if (recv.filepos  != null && recv.filepos == Long.MAX_VALUE) {
 					break;
 				}
 				if (recv.chunkBytes != null && recv.chunkBytes.length > 0) {
@@ -82,21 +87,40 @@ class DwlistHandler implements Runnable {
 
 				send = recv.clone();
 				send.command = Command.DWLIST;
-				send.chunkIndex = recv.chunkIndex + 1;
+//				send.filepos = recv.filepos + ;
 				ClientSocket.sendPacket(s, send);
+				logger.debug("send {}", send);
 
 				recv = ClientSocket.recvPacket(s, owner.timeout);
-				logger.debug("general recv {}", recv);
+				logger.debug("recv {}", recv);
 			}
 
 			if (fileBytes != null && fileBytes.position() > 0) {
-				String fileListStr = new String(fileBytes.array());
-				owner.fileList = fileListStr.split("\b");
+				String fileListStr = new String(fileBytes.array(), Utils.DEFAULT_FILE_ENCODING);
+				logger.debug("fileListStr {}", fileListStr);
+				String[] fileListArray = fileListStr.split("[,]");
+				List<String> fileL = new ArrayList<String>();
+				if (fileListArray != null && fileListArray.length > 0) {
+					for (int i = 0; i < fileListArray.length; i++) {
+						String fs = fileListArray[i];
+						if (fs == null || fs.trim().length() == 0) {
+							continue;
+						}
+						fs = Utils.decodeBase64(fs.trim());
+						fileL.add(fs);
+						logger.debug("valid file {}/{}  {}", i, fileListArray.length, fs);
+					}
+				}
+				if (fileL.size() > 0) {
+					owner.fileList = new String[fileL.size()];
+					fileL.toArray(owner.fileList);
+				}
 			}
 
 			logger.debug("file {} list over.", path);
 		} catch (Throwable e) {
-			throw new RuntimeException("send or recv Packet failed, " + e.getMessage(), e);
+			logger.error("file {} list failed.", path, e);
+			throw new RuntimeException("file " + path + " list failed, send or recv Packet failed, " + e.getMessage(), e);
 		} finally {
 			close();
 		}

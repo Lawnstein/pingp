@@ -21,6 +21,7 @@ public class ServProperties {
 	public long timeout = 30;
 	public long maxThreads = Runtime.getRuntime().availableProcessors() * 10;
 	public boolean sync = true;
+	public boolean debug = false;
 
 	public int getPort() {
 		return port;
@@ -60,6 +61,14 @@ public class ServProperties {
 
 	public void setSync(boolean sync) {
 		this.sync = sync;
+	}
+
+	public boolean isDebug() {
+		return debug;
+	}
+
+	public void setDebug(boolean debug) {
+		this.debug = debug;
 	}
 
 }

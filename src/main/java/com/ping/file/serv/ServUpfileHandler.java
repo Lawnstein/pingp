@@ -32,25 +32,27 @@ import com.ping.sync.ChangeManager;
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class UpfileHandler implements Runnable {
+class ServUpfileHandler implements Runnable {
 	private static final Logger logger = LoggerFactory.getLogger(TcpServer.class);
 
 	private TcpServer owner;
 
 	private Socket s;
+	private Long chunkSize;
 	private String filename = null;
 	private String filePath = null;
 	private boolean fileAppend = false;
 	private String fileChksum = null;
-	private long fileChunkIndex = 0l;
+	private long fileSize = 0l;
+	private long filePos = 0l;
 	private FileOutputStream fileOut = null;
 	private Packet recv = null;
 	private Packet send = new Packet();
 	private int stat = 2;
 	private boolean handleOver = false;
-//	private boolean result = false;
+	// private boolean result = false;
 
-	public UpfileHandler(Filter filter) {
+	public ServUpfileHandler(ServFilter filter) {
 		this.owner = filter.owner;
 		this.s = filter.s;
 		this.recv = filter.recv;
@@ -102,20 +104,20 @@ class UpfileHandler implements Runnable {
 		return null;
 	}
 
-	public void delConf() {
-		File cnf = new File(filePath + ".@{cnf}");
-		if (!cnf.exists()) {
-			return;
-		}
-		cnf.delete();
-	}
-
 	public void writeConf(String content) throws IOException {
 		File cnf = new File(filePath + ".@{cnf}");
 		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), owner.DEFAULT_FILE_ENCODING));
 		writer.write(content);
 		writer.close();
 		writer = null;
+	}
+
+	public void delConf() {
+		File cnf = new File(filePath + ".@{cnf}");
+		if (!cnf.exists()) {
+			return;
+		}
+		cnf.delete();
 	}
 
 	public void writeBytes(byte[] contents) throws IOException {
@@ -137,7 +139,13 @@ class UpfileHandler implements Runnable {
 
 		filename = recv.filename;
 		filePath = ChangeManager.getBaseDir() + recv.filename;
+		fileSize = recv.filesize;
 		fileChksum = recv.chksum;
+		if (recv.chunkSize != null) {
+			this.chunkSize = recv.chunkSize;
+		} else {
+			this.chunkSize = Utils.DEFAULT_CHUNK_SIZE;
+		}
 
 		send = recv.clone();
 		send.filename = null;
@@ -151,11 +159,11 @@ class UpfileHandler implements Runnable {
 			String[] ci = getConf();
 			if (ci == null) {
 				// if (fileChksum.equals(Utils.chksum(path))) {
-				stat = owner.isSync() ? ChangeManager.getServChanged(filename, fileChksum) : fileChksum.equals(Utils.chksum(filePath)) ? 0 : 2;
+				stat = owner.isSync() ? ChangeManager.getServChangedWithUp(filename, fileChksum) : fileChksum.equals(Utils.chksum(filePath)) ? 0 : 2;
 				if (stat == 0 || stat == 1) {
 					handleOver = true;
 					// fileWrite = false;
-					send.chunkIndex = Long.MAX_VALUE;
+					send.filepos = Long.MAX_VALUE;
 					send.cmdMesg = "file " + filename + " exist and no changes.";
 					logger.info(send.cmdMesg);
 					if (owner.isSync() && stat == 1) {
@@ -163,20 +171,20 @@ class UpfileHandler implements Runnable {
 					}
 					return;
 				}
-			} else if (fileChksum.equals(ci[1])) {
+			} else if (fileChksum.equals(ci[2]) && fileSize == Long.valueOf(ci[1])) {
 				fileAppend = true;
-				fileChunkIndex = Long.valueOf(ci[0]) + 1;
+				filePos = Long.valueOf(ci[0]);
 				logger.debug("file {} continue to transfer.", filename);
 			} else {
 				fileAppend = false;
-				fileChunkIndex = 0;
+				filePos = 0;
 			}
 		} else {
 			fileAppend = false;
-			fileChunkIndex = 0;
+			filePos = 0;
 		}
-		send.chunkIndex = fileChunkIndex;
-		logger.info("file {} expect chunkIndex {}", filename, send.chunkIndex);
+		send.filepos = filePos;
+		logger.info("file {} expect filePos {}", filename, send.filepos);
 	}
 
 	private void handleData() {
@@ -184,12 +192,16 @@ class UpfileHandler implements Runnable {
 			return;
 		}
 		if (recv.chunkBytes == null || recv.chunkBytes.length == 0) {
-			delConf();
 			handleOver = true;
-			logger.debug("file {} recv empty, maybe complete.", filename);
+			if (fileSize == filePos) {
+				delConf();
+				logger.debug("file {} recv complete.", filename);
+			} else {
+				logger.debug("file {} recv over, but not complete.", filename);
+			}
 
 			send = recv.clone();
-			send.chunkIndex = Long.MAX_VALUE;
+			send.filepos = Long.MAX_VALUE;
 			send.cmdMesg = "file " + filename + " write over.";
 			if (owner.isSync()) {
 				ChangeManager.writeServChangelog(filename, fileChksum);
@@ -198,10 +210,10 @@ class UpfileHandler implements Runnable {
 			send = recv.clone();
 			try {
 				writeBytes(recv.chunkBytes);
-				logger.debug("file {} write chunkIndex {}, {} byte(s)", filename, fileChunkIndex, recv.chunkBytes.length);
-				fileChunkIndex++;
-				writeConf(fileChunkIndex + "," + fileChksum);
-				send.chunkIndex = fileChunkIndex;
+				logger.debug("file {} write filePos {}, {} byte(s)", filename, filePos, recv.chunkBytes.length);
+				filePos += recv.chunkBytes.length;
+				writeConf(filePos + "," + fileSize + "," + fileChksum);
+				send.filepos = filePos;
 			} catch (IOException e) {
 				send.cmdResult = false;
 				send.cmdMesg = "file " + filename + " write failed, " + e.getMessage();
@@ -221,13 +233,21 @@ class UpfileHandler implements Runnable {
 			while (send.cmdResult && !handleOver) {
 				recv = ClientSocket.recvPacket(s, owner.timeout);
 				logger.debug("Recv [{}], {}", recv, s);
-				
+
 				handleData();
-				ClientSocket.sendPacket(s, send);
-				logger.debug("Sended [{}], {}.", send, s);
+				if (!handleOver) {
+					ClientSocket.sendPacket(s, send);
+					logger.debug("Sended [{}], {}.", send, s);
+				}
 			}
+
+			logger.debug("upfile {} over.", filename);
 		} catch (Throwable th) {
-			logger.error("upfile {} failed, {}", filename, th.getMessage());
+			if (owner.isDebug()) {
+				logger.error("upfile {} failed, {}", filename, th);
+			} else {
+				logger.error("upfile {} failed, {}", filename, th.getMessage());
+			}
 		} finally {
 			try {
 				Thread.sleep(1000);

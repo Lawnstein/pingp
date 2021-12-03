@@ -24,7 +24,7 @@ import com.ping.file.util.ClientSocket;
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class Filter implements Runnable {
+class ServFilter implements Runnable {
 	private static final Logger logger = LoggerFactory.getLogger(TcpServer.class);
 
 	protected TcpServer owner;
@@ -32,7 +32,7 @@ class Filter implements Runnable {
 	protected Socket s;
 	protected Packet recv = null;
 
-	public Filter(TcpServer owner, Socket socket) {
+	public ServFilter(TcpServer owner, Socket socket) {
 		this.owner = owner;
 		this.s = socket;
 		logger.info("connection {} accepted", s);
@@ -53,18 +53,22 @@ class Filter implements Runnable {
 
 			Runnable r = null;
 			if (Command.UPCHUNK.equals(recv.command)) {
-				r = new UpfileHandler(this);
+				r = new ServUpfileHandler(this);
 			} else if (Command.DWLIST.equals(recv.command)) {
-				r = new DwlistHandler(this);
+				r = new ServDwlistHandler(this);
 			} else if (Command.DWCHUNK.equals(recv.command)) {
-				r = new DwfileHandler(this);
+				r = new ServDwfileHandler(this);
 			} else {
 				throw new RuntimeException("unexpected first handle type.");
 			}
 
 			r.run();
 		} catch (Throwable th) {
-			logger.error("connection filter failed, {}", th.getMessage());
+			if (owner.isDebug()) {
+				logger.error("connection filter failed, {}", th);
+			} else {
+				logger.error("connection filter failed, {}", th.getMessage());
+			}
 			close();
 		} finally {
 		}

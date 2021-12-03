@@ -105,14 +105,6 @@ public class ChangeManager {
 		return null;
 	}
 
-	// public void writeChksum(String path, String content) throws IOException {
-	// File cnf = new File(path);
-	// BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), DEFAULT_FILE_ENCODING));
-	// writer.write(content);
-	// writer.close();
-	// writer = null;
-	// }
-
 	private static String getChangelogPath(String path) {
 		String fullPath = Utils.getCanonicalPath(path);
 		return fullPath.substring(getChangelogDir().length());
@@ -121,8 +113,8 @@ public class ChangeManager {
 	/**
 	 * @param path
 	 * @return 0 - no change. <br>
-	 *         1 - no sync config file.<br>
 	 *         2 - changed.<br>
+	 *         3 - no sync config file but changed.<br>
 	 */
 	public static int getClientChanged(String path) {
 		if (path == null) {
@@ -132,13 +124,14 @@ public class ChangeManager {
 		String changelogPath = getChangelogDir() + getEncodeName(Utils.getCanonicalPath(path));
 		String confChksum = readChksum(changelogPath);
 		if (confChksum == null || confChksum.length() == 0) {
-			return 1;
+			return 3;
 		}
 		String fileChksum = Utils.chksum(path);
-		if (fileChksum.equals(confChksum)) {
-			return 0;
+		// if (!fileChksum.equals(confChksum)) {
+		if (!Utils.equals(fileChksum, confChksum)) {
+			return 2;
 		}
-		return 2;
+		return 0;
 	}
 
 	public static void writeClientChangelog(String path, String chksum) {
@@ -156,11 +149,13 @@ public class ChangeManager {
 	/**
 	 * @param path
 	 * @param chksum
-	 * @return 0 - no change. <br>
-	 *         1 - no sync config file but not changed.<br>
+	 * @return status. <br>
+	 *         0 - no change. <br>
+	 *         1 - no sync config file but no changed.<br>
 	 *         2 - changed.<br>
+	 *         3 - no sync config file but changed.<br>
 	 */
-	public static int getServChanged(String path, String chksum) {
+	public static int getServChangedWithUp(String path, String chksum) {
 		if (path == null || chksum == null || chksum.length() == 0) {
 			return 2;
 		}
@@ -174,17 +169,59 @@ public class ChangeManager {
 		if (confChksum == null || confChksum.length() == 0) {
 			stat = 1;
 			String fileChksum = Utils.chksum(getBaseDir() + path);
-			if (!chksum.equals(fileChksum)) {
-				stat = 2;
+			// if (!chksum.equals(fileChksum)) {
+			if (!Utils.equals(chksum, fileChksum)) {
+				stat = 3;
 			}
 		} else {
-			if (chksum.equals(confChksum)) {
+			// if (chksum.equals(confChksum)) {
+			if (Utils.equals(chksum, confChksum)) {
 				stat = 0;
 			} else {
 				stat = 2;
 			}
 		}
 		return stat;
+	}
+
+	/**
+	 * @param path
+	 * @param chksum
+	 * @return array [ stat, chksum ] <br>
+	 *         0 - no change. <br>
+	 *         1 - no sync config file but no changed.<br>
+	 *         2 - changed.<br>
+	 *         3 - no sync config file but changed.<br>
+	 */
+	public static Object[] getServChangedWithDwn(String path, String chksum) {
+		if (path == null) {
+			return new Object[] { 2, null };
+		}
+
+		String changelogPath = Utils.getCanonicalPath(getBaseDir() + path);
+		changelogPath = Utils.substring(changelogPath, getBaseDir().length());
+		changelogPath = getChangelogDir() + getEncodeName(changelogPath);
+		String confChksum = readChksum(changelogPath);
+
+		int stat = -1;
+		String fileChksum = null;
+		if (confChksum == null || confChksum.length() == 0) {
+			stat = 1;
+			fileChksum = Utils.chksum(getBaseDir() + path);
+			// if (!chksum.equals(fileChksum)) {
+			if (!Utils.equals(chksum, fileChksum)) {
+				stat = 3;
+			}
+		} else {
+			fileChksum = confChksum;
+			// if (chksum.equals(fileChksum)) {
+			if (Utils.equals(chksum, fileChksum)) {
+				stat = 0;
+			} else {
+				stat = 2;
+			}
+		}
+		return new Object[] { stat, fileChksum };
 	}
 
 	public static void writeServChangelog(String path, String chksum) {
@@ -223,27 +260,4 @@ public class ChangeManager {
 		}
 	}
 
-	public static void main(String[] args) {
-		String a = "2Requirement需求\\\\马上系统接口文档\\\\支付文档\\\\支持的银行卡列，场景码，错误码 .doc";
-		String b = "D:\\doc\\20201217马上消费\\提交内网SV\\2Requirement需求\\马上系统接口文档\\支付文档\\支持的银行卡列，场景码，错误码 .doc";
-
-		// try {
-		String c = "D:\\doc";
-		System.out.println(b.substring(c.length()));
-
-		setBasePath("D:\\\\doc\\\\20201217马上消费\\\\提交内网SV", null);
-		System.out.println(getEncodeName(a));
-
-		System.out.println(c.substring(1));
-		// File f = new File(a);
-		// System.out.println(f.getCanonicalPath());
-		//
-		// f = new File(b);
-		// System.out.println(f.getCanonicalPath());
-
-		// } catch (IOException e) {
-		// e.printStackTrace();
-		// }
-
-	}
 }

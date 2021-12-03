@@ -32,18 +32,18 @@ import com.ping.sync.ChangeManager;
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class DwfileHandler implements Runnable {
-	private static final Logger logger = LoggerFactory.getLogger(DwfileHandler.class);
+class ClientDwfileHandler implements Runnable {
+	private static final Logger logger = LoggerFactory.getLogger(ClientDwfileHandler.class);
 
 	private TcpClient owner;
 
 	private Socket s;
+	private Long chunkSize;
 	private String filePath;
 	private String filename;
-	// private File file = null;
+	private long filePos = 0l;
+	private long fileSize = 0l;
 	private String fileChksum = null;
-	// private long fileSize = 0l;
-	private long fileChunkIndex = 0l;
 	private boolean fileAppend = false;
 	private FileOutputStream fileOut = null;
 	private Packet send = null;
@@ -51,14 +51,16 @@ class DwfileHandler implements Runnable {
 	private boolean handleOver = false;
 	private boolean result = false;
 
-	public DwfileHandler(TcpClient owner, String fullname, String rfilename) throws Exception {
+	public ClientDwfileHandler(TcpClient owner, String fullname, String rfilename) throws Exception {
 		this.owner = owner;
+		this.chunkSize = owner.chunkSize == null ? Utils.DEFAULT_CHUNK_SIZE : owner.chunkSize;
 		this.s = ClientSocket.connect(owner.ip, owner.port);
 		logger.debug("connected to server {}:{} {} for  {}", owner.ip, owner.port, s, rfilename);
 		this.filePath = fullname;
 		this.filename = rfilename;
-		this.fileChunkIndex = 0l;
-		logger.debug("local file {}", filename);
+		this.filePos = 0l;
+		this.fileSize = 0l;
+		logger.debug("local file {}", fullname);
 	}
 
 	public boolean isResult() {
@@ -97,20 +99,20 @@ class DwfileHandler implements Runnable {
 		return null;
 	}
 
-	public void delConf() {
-		File cnf = new File(filePath + ".@{cnf}");
-		if (!cnf.exists()) {
-			return;
-		}
-		cnf.delete();
-	}
-
 	public void writeConf(String content) throws IOException {
 		File cnf = new File(filePath + ".@{cnf}");
 		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), Utils.DEFAULT_FILE_ENCODING));
 		writer.write(content);
 		writer.close();
 		writer = null;
+	}
+
+	public void delConf() {
+		File cnf = new File(filePath + ".@{cnf}");
+		if (!cnf.exists()) {
+			return;
+		}
+		cnf.delete();
 	}
 
 	public void writeBytes(byte[] contents) throws IOException {
@@ -126,6 +128,7 @@ class DwfileHandler implements Runnable {
 	}
 
 	private void close() {
+		logger.debug("connection {} closed for {}", s, filename);
 		if (s != null) {
 			ClientSocket.close(s);
 		}
@@ -140,16 +143,28 @@ class DwfileHandler implements Runnable {
 
 	private void confirmChunk() throws Throwable {
 		String[] cf = getConf();
-		if (cf != null && cf.length == 2) {
-			fileChunkIndex = Long.valueOf(cf[0]);
-			fileChksum = cf[1];
+		if (cf != null && cf.length == 3) {
+			filePos = Long.valueOf(cf[0]);
+			fileSize = Long.valueOf(cf[1]);
+			fileChksum = cf[2];
+			if (filePos > fileSize) {
+				filePos = 0l;
+				fileSize = 0l;
+				fileChksum = null;
+			}
+		} else if (Utils.fileExists(filePath)) {
+			filePos = 0;
+			fileSize = Utils.filesize(filePath);
+			fileChksum = Utils.chksum(filePath);
 		}
 
 		send = new Packet();
 		send.command = Command.DWCHUNK;
 		send.filename = filename;
+		send.filepos = filePos;
+		send.filesize = fileSize;
 		send.chksum = fileChksum;
-		send.chunkIndex = fileChunkIndex;
+		send.chunkSize = this.chunkSize;
 		ClientSocket.sendPacket(s, send);
 		logger.debug("first send {}", send);
 		recv = ClientSocket.recvPacket(s, owner.timeout);
@@ -158,21 +173,26 @@ class DwfileHandler implements Runnable {
 			return;
 		}
 
-		if (!recv.chksum.equals(fileChksum)) {
-			fileChunkIndex = 0;
-			fileChksum = recv.chksum;
-		} else {
+		filePos = recv.filepos;
+		fileSize = recv.filesize;
+		fileChksum = recv.chksum;
+		if (filePos > 0) {
 			fileAppend = true;
 		}
 
-		logger.debug("file {} chunkIndex  {}, fileChksum {}", filename, fileChunkIndex, fileChksum);
+		Utils.mkdirsForFile(filePath);
+		logger.debug("file {} filePos  {}, fileChksum {}", filename, filePos, fileChksum);
 	}
 
 	private void handleData() throws Throwable {
 		if (recv.chunkBytes == null || recv.chunkBytes.length == 0) {
-			delConf();
 			handleOver = true;
-			logger.debug("file {} recv empty, maybe complete.", filename);
+			if (filePos == fileSize) {
+				delConf();
+				logger.debug("file {} recv complete.", filename);
+			} else {
+				logger.debug("file {} recv over, but not complete.", filename);
+			}
 
 			if (owner.isSync()) {
 				ChangeManager.writeClientChangelog(filePath, fileChksum);
@@ -180,12 +200,16 @@ class DwfileHandler implements Runnable {
 		} else {
 			send = recv.clone();
 			send.command = Command.DWDATA;
+			send.filename = null;
 			try {
 				writeBytes(recv.chunkBytes);
-				logger.debug("file {} write chunkIndex {}, {} byte(s)", filename, fileChunkIndex, recv.chunkBytes.length);
-				fileChunkIndex++;
-				writeConf(fileChunkIndex + "," + fileChksum);
-				send.chunkIndex = fileChunkIndex;
+				logger.debug("file {} write filePos {}, {} byte(s)", filename, filePos, recv.chunkBytes.length);
+
+				filePos += recv.chunkBytes.length;
+				send.filepos = filePos;
+				if (filePos < fileSize) {
+					writeConf(filePos + "," + fileSize + "," + fileChksum);
+				}
 			} catch (IOException e) {
 				send.cmdResult = false;
 				send.cmdMesg = "file " + filename + " write failed, " + e.getMessage();
@@ -198,32 +222,43 @@ class DwfileHandler implements Runnable {
 	@Override
 	public void run() {
 		try {
-			confirmChunk();
-
-			send = recv.clone();
-			send.command = Command.DWDATA;
-			send.chunkIndex = fileChunkIndex++;
-			ClientSocket.sendPacket(s, send);
-			logger.debug("send {}", send);
-			recv = ClientSocket.recvPacket(s, owner.timeout);
-			logger.debug("recv {}", recv);
-
-			while (recv.cmdResult && !handleOver) {
-				handleData();
-				if (handleOver) {
+			for (;;) {
+				confirmChunk();
+				if (!recv.cmdResult) {
 					break;
 				}
 
+				send = recv.clone();
+				send.command = Command.DWDATA;
+				send.filepos = filePos;
 				ClientSocket.sendPacket(s, send);
 				logger.debug("send {}", send);
 				recv = ClientSocket.recvPacket(s, owner.timeout);
 				logger.debug("recv {}", recv);
+
+				while (recv.cmdResult && !handleOver) {
+					handleData();
+					if (handleOver) {
+						break;
+					}
+
+					ClientSocket.sendPacket(s, send);
+					logger.debug("send {}", send);
+					if (!send.cmdResult) {
+						break;
+					}
+
+					recv = ClientSocket.recvPacket(s, owner.timeout);
+					logger.debug("recv {}", recv);
+				}
+				break;
 			}
 
 			logger.debug("file {} down over.", filename);
 			result = true;
 		} catch (Throwable e) {
-			throw new RuntimeException("send or recv Packet failed, " + e.getMessage(), e);
+			logger.error("file {} down failed.", filename, e);
+			throw new RuntimeException("file " + filename + " down failed, send or recv Packet failed, " + e.getMessage(), e);
 		} finally {
 			close();
 		}

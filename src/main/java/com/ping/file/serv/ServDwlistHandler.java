@@ -9,7 +9,6 @@
 
 package com.ping.file.serv;
 
-import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -30,24 +29,25 @@ import com.ping.sync.ChangeManager;
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class DwlistHandler implements Runnable {
+class ServDwlistHandler implements Runnable {
 	private static final Logger logger = LoggerFactory.getLogger(TcpServer.class);
 
 	private TcpServer owner;
 
 	private Socket s;
+	private Long chunkSize;
 	private String filename = null;
 	private String filePath = null;
 	private byte[] fileBytes = null;
 	private long fileSize = 0l;
 	private long fileCount = 0l;
 	private long filePos = 0l;
-	private long fileChunkIndex = 0l;
+//	private long fileChunkIndex = 0l;
 	private Packet recv = null;
 	private Packet send = new Packet();
 	private boolean handleOver = false;
 
-	public DwlistHandler(Filter filter) {
+	public ServDwlistHandler(ServFilter filter) {
 		this.owner = filter.owner;
 		this.s = filter.s;
 		this.recv = filter.recv;
@@ -67,13 +67,23 @@ class DwlistHandler implements Runnable {
 
 		filename = recv.filename;
 		filePath = Utils.getCanonicalPath(ChangeManager.getBaseDir() + recv.filename);
-		fileChunkIndex = 0;
+		filePos = 0;
+		if (recv.chunkSize != null) {
+			this.chunkSize = recv.chunkSize;
+		} else {
+			this.chunkSize = Utils.DEFAULT_CHUNK_SIZE;
+		}
 
 		send = recv.clone();
-		send.chunkIndex = fileChunkIndex;
+//		send.filepos = filePos;
 		StringBuilder sb = new StringBuilder();
 		if (Utils.fileExists(filePath)) {
-			sb.append(filePath.substring(ChangeManager.getBaseDir().length()));
+			String fn = filePath.substring(ChangeManager.getBaseDir().length());
+			logger.debug("file {} ", fn);
+			if (sb.length() > 0) {
+				sb.append(",");
+			}
+			sb.append(Utils.encodeBase64(fn));
 			fileCount = 1;
 		} else if (Utils.dirExists(filePath)) {
 			List<String> l = new ArrayList<String>();
@@ -86,8 +96,12 @@ class DwlistHandler implements Runnable {
 				return;
 			}
 			for (String s : l) {
-				sb.append(s.substring(ChangeManager.getBaseDir().length()));
-				sb.append('\b');
+				String fn = s.substring(ChangeManager.getBaseDir().length());
+				logger.debug("file {} ", fn);
+				if (sb.length() > 0) {
+					sb.append(",");
+				}
+				sb.append(Utils.encodeBase64(fn));
 			}
 		} else {
 			send.cmdResult = false;
@@ -98,32 +112,35 @@ class DwlistHandler implements Runnable {
 		logger.debug("Locate {} file(s) for {} .", fileCount, filename);
 
 		try {
-			fileBytes = sb.toString().getBytes(Utils.DEFAULT_FILE_ENCODING);
+			String fileListStr = sb.toString();
+			logger.debug("fileListStr {} ", fileListStr);
+			fileBytes = fileListStr.getBytes(Utils.DEFAULT_FILE_ENCODING);
 			fileSize = fileBytes.length;
 			filePos = 0;
+			send.filesize = fileSize;
 		} catch (UnsupportedEncodingException e) {
 			send.cmdResult = false;
 			send.cmdMesg = "down file list on encoding failed, " + e.getMessage();
 			logger.error(send.cmdMesg);
 			return;
+
 		}
 		logger.info("file {} list count {}", filename, fileCount);
 	}
 
 	public void handleData() {
-		int cursize = (int) (fileSize - filePos > Utils.DEFAULT_CHUNK_SIZE ? Utils.DEFAULT_CHUNK_SIZE : fileSize - filePos);
+		int cursize = (int) (fileSize - filePos > chunkSize ? chunkSize : fileSize - filePos);
 		if (cursize < 0) {
 			cursize = 0;
 		}
 		if (cursize > 0) {
 			send.chunkBytes = new byte[cursize];
-			send.chunkIndex = fileChunkIndex;
+//			send.filepos = filePos;
 			System.arraycopy(fileBytes, (int) filePos, send.chunkBytes, 0, cursize);
 
 			filePos += cursize;
-			fileChunkIndex++;
 		} else {
-			send.chunkIndex = Long.MAX_VALUE;
+			send.filepos = Long.MAX_VALUE;
 			handleOver = true;
 		}
 	}
@@ -131,7 +148,7 @@ class DwlistHandler implements Runnable {
 	@Override
 	public void run() {
 		try {
-			for (int i = 0; i < 1; i++) {
+			for (;;) {
 				confirmList();
 				if (!send.cmdResult) {
 					handleData();
@@ -158,8 +175,14 @@ class DwlistHandler implements Runnable {
 				}
 				break;
 			}
+			
+			logger.debug("dwlist {} over.", filename);
 		} catch (Throwable th) {
-			logger.error("dwlist {} failed, {}", filename, th.getMessage());
+			if (owner.isDebug()) {
+				logger.error("dwlist {} failed, {}", filename, th);			
+			} else {
+				logger.error("dwlist {} failed, {}", filename, th.getMessage());
+			}
 		} finally {
 			try {
 				Thread.sleep(1000);

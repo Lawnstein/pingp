@@ -2,9 +2,6 @@
 package com.ping.file.client;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -16,9 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.ping.configure.ClientProperties;
-import com.ping.file.protocol.Command;
-import com.ping.file.protocol.Packet;
-import com.ping.file.util.ClientSocket;
 import com.ping.file.util.NamedThreadFactory;
 import com.ping.file.util.Utils;
 import com.ping.sync.ChangeManager;
@@ -33,13 +27,14 @@ public class TcpClient {
 	private static final Logger logger = LoggerFactory.getLogger(TcpClient.class);
 
 	protected final int HEADLENGTH = Utils.HEADLENGTH;
-	protected final long CHUNKSIZE = Utils.DEFAULT_CHUNK_SIZE;
 
 	protected String ip;
 	protected int port;
 	protected int timeout = Utils.DEFAULT_TIMEOUT_SEC;
 	protected int retry = 30;
+	protected Long chunkSize;
 	protected boolean sync = true;
+	protected boolean debug = false;
 	protected String path;
 	protected String[] fileList;
 
@@ -52,13 +47,6 @@ public class TcpClient {
 	 * TCP请求处理并发处理线程池.
 	 */
 	private ExecutorService handlePool = null;
-
-	/**
-	 * 处理进度.
-	 */
-	private int totalCounter = 0;
-	private AtomicInteger handleCounter = new AtomicInteger(0);
-	private int perct = -1;
 
 	public TcpClient(String ip, int port, String path, int maxThreads, ClientProperties propties) {
 		super();
@@ -86,6 +74,13 @@ public class TcpClient {
 		}
 		System.out.println(this.maxHandleThreads);
 
+		String chunkSizeStr = System.getProperty("client.chunk-size");
+		if (chunkSizeStr != null && chunkSizeStr.length() > 0) {
+			this.chunkSize = Long.valueOf(chunkSizeStr);
+		} else if (propties != null && propties.chunkSize > 0) {
+			this.chunkSize = propties.chunkSize;
+		}
+
 		String syncStr = System.getProperty("client.sync");
 		if (syncStr != null && syncStr.length() > 0) {
 			this.sync = Boolean.valueOf(syncStr);
@@ -93,6 +88,13 @@ public class TcpClient {
 			this.sync = propties.sync;
 		}
 
+		String debugStr = System.getProperty("client.debug");
+		if (debugStr != null && debugStr.length() > 0) {
+			this.debug = Boolean.valueOf(debugStr);
+		} else if (propties != null) {
+			this.debug = propties.debug;
+		}
+		
 		ChangeManager.setBasePath(null, System.getProperty("user.home"));
 		this.handlePool = Executors.newFixedThreadPool(maxHandleThreads, new NamedThreadFactory("Handler"));
 	}
@@ -101,17 +103,22 @@ public class TcpClient {
 		return sync;
 	}
 
-	public void startPerct() {
-		System.out.print("0");
-		if (totalCounter == 0) {
+	public boolean isDebug() {
+		return debug;
+	}
+
+	public void startPerct(final int totalCounter, final CountDownLatch countDown) {
+		if (totalCounter == 0 || countDown == null) {
 			return;
 		}
 
 		Runnable r = new Runnable() {
 			@Override
 			public void run() {
+				int perct = -1;
+				System.out.print("0");
 				while (true) {
-					int pct = handleCounter.intValue() * 100 / totalCounter;
+					int pct = (int) (countDown.getCount() * 100 / totalCounter);
 					if (pct == perct) {
 						return;
 					}
@@ -135,6 +142,7 @@ public class TcpClient {
 			}
 
 		};
+
 		Thread pt = new Thread(r);
 		pt.setDaemon(true);
 		pt.start();
@@ -143,7 +151,7 @@ public class TcpClient {
 	public void download() {
 		for (int i = 0; i < retry; i++) {
 			try {
-				DwlistHandler listHandler = new DwlistHandler(this, path);
+				ClientDwlistHandler listHandler = new ClientDwlistHandler(this, path);
 				listHandler.run();
 				break;
 			} catch (Throwable e) {
@@ -155,35 +163,41 @@ public class TcpClient {
 		if (fileList == null || fileList.length == 0) {
 			return;
 		}
+		boolean specifiedSingleFile = false;
+		if (fileList.length == 1 && Utils.getBasename(fileList[0]).equals(Utils.getBasename(path))) {
+			specifiedSingleFile = true;
+		}
 
 		String pwd = Utils.getPwd();
 		List<String> ud = new ArrayList<String>();
-		totalCounter = fileList.length;
-		startPerct();
 		CountDownLatch cdl = new CountDownLatch(fileList.length);
-		for (String s : fileList) {
-			final String fullname = pwd + s;
-			final TcpClient owner = this;
+		startPerct(fileList.length, cdl);
+		final TcpClient owner = this;
+		for (String fs : fileList) {
+			final String fullname = pwd + (specifiedSingleFile ? Utils.getBasename(fs) : fs);
 			Runnable r = new Runnable() {
 				@Override
 				public void run() {
 					Exception thr = null;
 					for (int i = 0; i < retry; i++) {
 						try {
-							DwfileHandler h = new DwfileHandler(owner, fullname, s);
+							ClientDwfileHandler h = new ClientDwfileHandler(owner, fullname, fs);
 							h.run();
 							thr = null;
 							break;
 						} catch (Exception e) {
-							logger.error("dw {} with {} failed, {}", path, s, e.getMessage(), e);
+							if (isDebug()) {
+								logger.error("dw {} with {} failed, {}", path, fs, e);
+							} else {
+								logger.error("dw {} with {} failed, {}", path, fs, e.getMessage());
+							}
 							thr = e;
 						}
 					}
 					if (thr != null) {
-						ud.add(s);
+						ud.add(fs);
 					}
 					cdl.countDown();
-					handleCounter.getAndIncrement();
 				}
 			};
 			handlePool.execute(r);
@@ -205,26 +219,28 @@ public class TcpClient {
 	}
 
 	public void upload() {
-		List<String> l = new ArrayList<String>();
-		Utils.getFiles(path, l);
-		logger.debug("Locate {} file(s) for {} .", l.size(), path);
-		if (l.size() == 0) {
-			return;
-		}
-
 		File f = new File(path);
 		String origDir = "";
 		if (f.isFile()) {
 			origDir = Utils.getDirname(path);
 		} else if (f.isDirectory()) {
 			origDir = path.substring(0, path.length() - Utils.getBasename(path).length());
+		} else {
+			return;
 		}
+
+		List<String> l = new ArrayList<String>();
+		Utils.getFiles(path, l);
+		logger.debug("Locate {} file(s) for {}", l.size(), path);
+		if (l.size() == 0) {
+			return;
+		}
+
 		List<String> ud = new ArrayList<String>();
-		totalCounter = l.size();
-		startPerct();
 		CountDownLatch cdl = new CountDownLatch(l.size());
-		for (String s : l) {
-			final String fn = origDir == null || origDir.length() == 0 ? s : s.substring(origDir.length() - 1);
+		startPerct(l.size(), cdl);
+		for (String fs : l) {
+			final String fn = origDir == null || origDir.length() == 0 ? fs : fs.substring(origDir.length() - 1);
 			final TcpClient owner = this;
 			Runnable r = new Runnable() {
 				@Override
@@ -235,30 +251,33 @@ public class TcpClient {
 							int stat = -1;
 							boolean up = true;
 							if (isSync()) {
-								stat = ChangeManager.getClientChanged(s);
+								stat = ChangeManager.getClientChanged(fs);
 								if (stat == 0) {
 									up = false;
 								}
 							}
 							if (up) {
-								UpHandler h = new UpHandler(owner, s, fn);
+								ClientUpHandler h = new ClientUpHandler(owner, fs, fn);
 								h.run();
 								if (h.isResult() && stat > 0) {
-									ChangeManager.writeClientChangelog(s, h.getFileChksum());
+									ChangeManager.writeClientChangelog(fs, h.getFileChksum());
 								}
 								thr = null;
 							}
 							break;
 						} catch (Exception e) {
-							logger.error("up {} with {} failed, {}", path, s, e.getMessage(), e);
+							if (isDebug()) {
+								logger.error("up {} with {} failed, {}", path, fs, e);
+							} else {
+								logger.error("up {} with {} failed, {}", path, fs, e.getMessage());
+							}
 							thr = e;
 						}
 					}
 					if (thr != null) {
-						ud.add(s);
+						ud.add(fs);
 					}
 					cdl.countDown();
-					handleCounter.getAndIncrement();
 				}
 			};
 			handlePool.execute(r);

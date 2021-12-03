@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.util.Arrays;
 
 /**
  * 数据传输包.
@@ -22,14 +21,17 @@ public class Packet implements Serializable {
 
 	public String filename;
 	public String chksum;
-	public long chunkIndex;
+	public Long filepos;
+	public Long filesize;
+	public Long chunkSize;
 	public byte[] chunkBytes;
 
 	public Packet() {
 		super();
 		this.cmdResult = true;
 		this.cmdMesg = null;
-		this.chunkIndex = 0l;
+		this.chunkSize = null;
+		this.filepos = null;
 	}
 
 	@Override
@@ -39,16 +41,34 @@ public class Packet implements Serializable {
 		builder.append(command);
 		builder.append(", cmdResult=");
 		builder.append(cmdResult);
-		builder.append(", cmdMesg=");
-		builder.append(cmdMesg);
-		builder.append(", filename=");
-		builder.append(filename);
-		builder.append(", chksum=");
-		builder.append(chksum);
-		builder.append(", chunkIndex=");
-		builder.append(chunkIndex);
-		builder.append(", chunkBytes.size=");
-		builder.append(chunkBytes == null ? 0 : chunkBytes.length);
+		if (cmdMesg != null) {
+			builder.append(", cmdMesg=");
+			builder.append(cmdMesg);
+		}
+		if (filename != null) {
+			builder.append(", filename=");
+			builder.append(filename);
+		}
+		if (chksum != null) {
+			builder.append(", chksum=");
+			builder.append(chksum);
+		}
+		if (filepos != null) {
+			builder.append(", filepos=");
+			builder.append(filepos);
+		}
+		if (filesize != null) {
+			builder.append(", filesize=");
+			builder.append(filesize);
+		}
+		if (chunkSize != null) {
+			builder.append(", chunkSize=");
+			builder.append(chunkSize);
+		}
+		if (chunkBytes != null) {
+			builder.append(", chunkBytes.size=");
+			builder.append(chunkBytes == null ? 0 : chunkBytes.length);
+		}
 		builder.append("]");
 		return builder.toString();
 	}
@@ -61,7 +81,7 @@ public class Packet implements Serializable {
 		// p.rfilename = this.rfilename;
 		p.chksum = null;
 		// p.filesize = this.filesize;
-		p.chunkIndex = this.chunkIndex;
+		p.filepos = this.filepos;
 		p.chunkBytes = null;
 		return p;
 	}

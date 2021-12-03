@@ -1,12 +1,7 @@
 
 package com.ping.file.serv;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -17,9 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.ping.configure.ServProperties;
-import com.ping.file.protocol.Command;
-import com.ping.file.protocol.Packet;
-import com.ping.file.util.ClientSocket;
 import com.ping.file.util.NamedThreadFactory;
 import com.ping.file.util.Utils;
 import com.ping.sync.ChangeManager;
@@ -60,6 +52,8 @@ public class TcpServer {
 
 	protected boolean sync = true;
 
+	public boolean debug = false;
+	
 	/**
 	 * TCP请求处理并发处理线程池.
 	 */
@@ -99,11 +93,18 @@ public class TcpServer {
 			this.maxHandleThreads = (int) propties.maxThreads;
 		}
 
-		String syncStr = System.getProperty("client.sync");
+		String syncStr = System.getProperty("server.sync");
 		if (syncStr != null && syncStr.length() > 0) {
 			this.sync = Boolean.valueOf(syncStr);
 		} else if (propties != null) {
 			this.sync = propties.sync;
+		}
+
+		String debugStr = System.getProperty("server.debug");
+		if (debugStr != null && debugStr.length() > 0) {
+			this.debug = Boolean.valueOf(debugStr);
+		} else if (propties != null) {
+			this.debug = propties.debug;
 		}
 
 		ChangeManager.setBasePath(this.dir, null);
@@ -138,7 +139,7 @@ public class TcpServer {
 							logger.debug("Accepted connection {}", s);
 							s.setTcpNoDelay(true);
 							s.setSoLinger(true, 10);
-							handlePool.execute(new Filter(instance, s));
+							handlePool.execute(new ServFilter(instance, s));
 						}
 					} catch (Throwable thr) {
 						if (alived) {
@@ -226,6 +227,10 @@ public class TcpServer {
 		return sync;
 	}
 
+	public boolean isDebug() {
+		return debug;
+	}
+	
 	private ServerSocket createServerSocket(int port) {
 		ServerSocket s;
 		try {
