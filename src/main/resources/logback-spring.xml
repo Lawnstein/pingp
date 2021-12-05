@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 	<property name="logger.appid" value="pingp" />
-	<property name="logger.dir" value="logs" />
+	<property name="logger.dir" value="/opt/logs" />
 	<property name="logger.stdoutloglevel" value="INFO" />
-	<property name="logger.rootloglevel" value="DEBUG" />
-	<property name="logger.thirdloglevel" value="ERROR" />
+	<property name="logger.rootloglevel" value="INFO" />
 	<contextName>${logger.appid}</contextName>
 	
 	<logger name="org.springframework" level="WARN" />

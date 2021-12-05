@@ -24,6 +24,7 @@ public class ClientProperties {
 	public long chunkSize = 0;
 	public boolean sync = true;
 	public boolean debug = false;
+	public boolean cvsExclude = true;
 
 	public String getIp() {
 		return ip;
@@ -87,6 +88,14 @@ public class ClientProperties {
 
 	public void setDebug(boolean debug) {
 		this.debug = debug;
+	}
+
+	public boolean isCvsExclude() {
+		return cvsExclude;
+	}
+
+	public void setCvsExclude(boolean cvsExclude) {
+		this.cvsExclude = cvsExclude;
 	}
 
 }

@@ -27,6 +27,7 @@ public class TcpClient {
 	private static final Logger logger = LoggerFactory.getLogger(TcpClient.class);
 
 	protected final int HEADLENGTH = Utils.HEADLENGTH;
+	protected final String[] CVS_FOLDERS = { File.separator + ".git" + File.separator, File.separator + ".svn" + File.separator };
 
 	protected String ip;
 	protected int port;
@@ -35,6 +36,7 @@ public class TcpClient {
 	protected Long chunkSize;
 	protected boolean sync = true;
 	protected boolean debug = false;
+	protected boolean cvsExclude = true;
 	protected String path;
 	protected String[] fileList;
 
@@ -94,7 +96,14 @@ public class TcpClient {
 		} else if (propties != null) {
 			this.debug = propties.debug;
 		}
-		
+
+		String cvsExcludeStr = System.getProperty("client.cvs-exclude");
+		if (cvsExcludeStr != null && cvsExcludeStr.length() > 0) {
+			this.cvsExclude = Boolean.valueOf(cvsExcludeStr);
+		} else if (propties != null) {
+			this.cvsExclude = propties.cvsExclude;
+		}
+
 		ChangeManager.setBasePath(null, System.getProperty("user.home"));
 		this.handlePool = Executors.newFixedThreadPool(maxHandleThreads, new NamedThreadFactory("Handler"));
 	}
@@ -115,27 +124,28 @@ public class TcpClient {
 		Runnable r = new Runnable() {
 			@Override
 			public void run() {
+				System.out.println("\n\n\n");
+
 				int perct = -1;
-				System.out.print("0");
-				while (true) {
-					int pct = (int) (countDown.getCount() * 100 / totalCounter);
+				while (perct < 100) {
+					int pct = (int) ((totalCounter - countDown.getCount()) * 100 / totalCounter);
 					if (pct == perct) {
-						return;
-					}
-					if (perct != -1) {
-						String s = perct + "";
-						for (int i = 0; i < s.length(); i++) {
-							System.out.print("\b \b");
+						try {
+							Thread.sleep(100);
+						} catch (InterruptedException e) {
 						}
-					}
-					System.out.print(pct + "");
-					if (perct >= 100) {
-						break;
+						continue;
 					}
 
 					perct = pct;
+					String s = perct + "";
+					System.out.print(s);
+					for (int i = 0; i < s.length(); i++) {
+						System.out.print("\b");
+					}
+
 					try {
-						Thread.sleep(1000);
+						Thread.sleep(500);
 					} catch (InterruptedException e) {
 					}
 				}
@@ -236,10 +246,28 @@ public class TcpClient {
 			return;
 		}
 
+		List<String> fl = l;
+		if (cvsExclude) {
+			fl = new ArrayList<String>();
+			for (String fs : l) {
+				boolean cvsIgnore = false;
+				for (String cvsfnm : CVS_FOLDERS) {
+					if (fs.contains(cvsfnm)) {
+						cvsIgnore = true;
+						break;
+					}
+				}
+				if (cvsIgnore) {
+					continue;
+				}
+				fl.add(fs);
+			}
+		}
+
 		List<String> ud = new ArrayList<String>();
-		CountDownLatch cdl = new CountDownLatch(l.size());
-		startPerct(l.size(), cdl);
-		for (String fs : l) {
+		CountDownLatch cdl = new CountDownLatch(fl.size());
+		startPerct(fl.size(), cdl);
+		for (String fs : fl) {
 			final String fn = origDir == null || origDir.length() == 0 ? fs : fs.substring(origDir.length() - 1);
 			final TcpClient owner = this;
 			Runnable r = new Runnable() {
@@ -294,7 +322,7 @@ public class TcpClient {
 			for (String s : ud) {
 				uds += "\n" + s;
 			}
-			logger.debug("{} file(s) up over, {} failed {}", l.size(), ud.size(), uds);
+			logger.debug("{} file(s) up over, {} failed {}", fl.size(), ud.size(), uds);
 		}
 	}
 
