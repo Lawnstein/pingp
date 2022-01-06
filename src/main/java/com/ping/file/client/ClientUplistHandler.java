@@ -3,113 +3,92 @@
  * CSII PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.<br>
  * <br>
  * project: pingp <br>
- * create: 2021年11月28日 下午1:41:19 <br>
+ * create: 2021年11月28日 下午1:27:09 <br>
  * vc: $Id: $
  */
 
-package com.ping.file.serv;
-
-import java.io.UnsupportedEncodingException;
-import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+package com.ping.file.client;
 
 import com.ping.file.protocol.Command;
 import com.ping.file.protocol.Packet;
 import com.ping.file.util.ClientSocket;
 import com.ping.file.util.Utils;
-import com.ping.sync.ChangeManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.UnsupportedEncodingException;
+import java.net.Socket;
+import java.util.List;
 
 /**
- * 下载文件清单处理器.
+ * 上传处理器.
  * 
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class ServDwlistHandler implements Runnable {
-	private static final Logger logger = LoggerFactory.getLogger(TcpServer.class);
+class ClientUplistHandler implements Runnable {
+	private static final Logger logger = LoggerFactory.getLogger(ClientUplistHandler.class);
 
-	private TcpServer owner;
+	private TcpClient owner;
 
 	private Socket s;
 	private Long chunkSize;
-	private String filename = null;
-	private String filePath = null;
+	private String filename;
+//	private ByteBuffer fileBytes;
 	private byte[] fileBytes = null;
 	private long fileSize = 0l;
-	private long fileCount = 0l;
 	private long filePos = 0l;
-//	private long fileChunkIndex = 0l;
+	private Packet send = null;
 	private Packet recv = null;
-	private Packet send = new Packet();
 	private boolean handleOver = false;
+	private List<String> files;
 
-	public ServDwlistHandler(ServFilter filter) {
-		this.owner = filter.owner;
-		this.s = filter.s;
-		this.recv = filter.recv;
+
+	public ClientUplistHandler(TcpClient owner, String filename, List<String> files) throws Exception {
+		this.owner = owner;
+		this.chunkSize = owner.chunkSize == null ? Utils.DEFAULT_CHUNK_SIZE : owner.chunkSize;
+		this.s = ClientSocket.connect(owner.ip, owner.port);
+		logger.debug("connected to server {}:{} {} for file {}", owner.ip, owner.port, s, filename);
+		this.filename = filename;
+		this.files = files;
+	}
+
+	public TcpClient getOwner() {
+		return owner;
+	}
+
+	public void setOwner(TcpClient owner) {
+		this.owner = owner;
 	}
 
 	private void close() {
-		logger.info("connection {} closed for {}", s, filename);
+		logger.debug("connection {} closed for {}", s, filename);
 		if (s != null) {
 			ClientSocket.close(s);
 		}
 	}
 
+
 	private void confirmList() {
-		if (!Command.DWLIST.equals(recv.command)) {
+		send = new Packet();
+		send.command = Command.UPLIST;
+		// send.filename = filename;
+		send.chunkSize = this.chunkSize;
+		send.cmdResult = false;
+
+		if (files != null && files.size() == 0) {
 			return;
 		}
 
-		filename = recv.filename;
-		filePath = Utils.getCanonicalPath(ChangeManager.getBaseDir() + recv.filename);
-		filePos = 0;
-		if (recv.chunkSize != null) {
-			this.chunkSize = recv.chunkSize;
-		} else {
-			this.chunkSize = Utils.DEFAULT_CHUNK_SIZE;
-		}
-
-		send = recv.clone();
-//		send.filepos = filePos;
 		StringBuilder sb = new StringBuilder();
-		if (Utils.fileExists(filePath)) {
-			String fn = filePath.substring(ChangeManager.getBaseDir().length());
+		for (String s : files) {
+			String fn = s.substring(filename.length() - 1);
 			logger.debug("file {} ", fn);
 			if (sb.length() > 0) {
 				sb.append(",");
 			}
 			sb.append(Utils.encodeBase64(fn));
-			fileCount = 1;
-		} else if (Utils.dirExists(filePath)) {
-			List<String> l = new ArrayList<String>();
-			Utils.getFiles(filePath, l);
-			fileCount = l.size();
-			if (l.size() == 0) {
-				send.cmdResult = false;
-				send.cmdMesg = "no file found.";
-				logger.error(send.cmdMesg);
-				return;
-			}
-			for (String s : l) {
-				String fn = s.substring(ChangeManager.getBaseDir().length());
-				logger.debug("file {} ", fn);
-				if (sb.length() > 0) {
-					sb.append(",");
-				}
-				sb.append(Utils.encodeBase64(fn));
-			}
-		} else {
-			send.cmdResult = false;
-			send.cmdMesg = "no file found.";
-			logger.error(send.cmdMesg);
-			return;
 		}
-		logger.debug("Locate {} file(s) for {} .", fileCount, filename);
 
 		try {
 			String fileListStr = sb.toString();
@@ -118,15 +97,16 @@ class ServDwlistHandler implements Runnable {
 			fileSize = fileBytes.length;
 			filePos = 0;
 			send.filesize = fileSize;
+			send.cmdResult = true;
 		} catch (UnsupportedEncodingException e) {
 			send.cmdResult = false;
-			send.cmdMesg = "down file list on encoding failed, " + e.getMessage();
+			send.cmdMesg = "upload file list on encoding failed, " + e.getMessage();
 			logger.error(send.cmdMesg);
 			return;
-
 		}
-		logger.info("file {} list count {}", filename, fileCount);
+		logger.info("file {} list count {}", filename, files.size());
 	}
+
 
 	public void handleData() {
 		int cursize = (int) (fileSize - filePos > chunkSize ? chunkSize : fileSize - filePos);
@@ -135,7 +115,7 @@ class ServDwlistHandler implements Runnable {
 		}
 		if (cursize > 0) {
 			send.chunkBytes = new byte[cursize];
-//			send.filepos = filePos;
+			// send.filepos = filePos;
 			System.arraycopy(fileBytes, (int) filePos, send.chunkBytes, 0, cursize);
 
 			filePos += cursize;
@@ -173,13 +153,24 @@ class ServDwlistHandler implements Runnable {
 					recv = ClientSocket.recvPacket(s, owner.timeout);
 					logger.debug("Recv [{}], {}", recv, s);
 				}
+
+				recv = ClientSocket.recvPacket(s, owner.timeout);
+				while (recv.cmdResult) {
+					if (recv.filepos != null && recv.filepos == Long.MAX_VALUE) {
+						break;
+					}
+
+					recv = ClientSocket.recvPacket(s, owner.timeout);
+					logger.debug("Recv {}", recv);
+				}
+
 				break;
 			}
-			
-			logger.debug("dwlist {} over.", filename);
+
+			logger.debug("uplist {} over.", filename);
 		} catch (Throwable th) {
 			if (owner.isDebug()) {
-				logger.error("dwlist {} failed, {}", filename, th);			
+				logger.error("uplist {} failed, {}", filename, th);
 			} else {
 				logger.error("dwlist {} failed, {}", filename, th.getMessage());
 			}
@@ -191,5 +182,4 @@ class ServDwlistHandler implements Runnable {
 			close();
 		}
 	}
-
 }

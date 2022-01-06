@@ -105,6 +105,27 @@ public class Utils {
 		return ret;
 	}
 
+	public static boolean fileDelete(String path) {
+		return fileDelete(new File(path));
+	}
+
+	public static boolean fileDelete(File f) {
+		if (f == null || !f.exists()) {
+			return false;
+		}
+		if (f.isFile()) {
+			return f.delete();
+		} else if (f.isDirectory()) {
+			File[] files = f.listFiles();
+			for (int i = 0; i < files.length; i++) {
+				if (!fileDelete(files[i])) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
 	public static boolean fileExists(String path) {
 		File f = new File(path);
 		if (f.exists() && f.isFile()) {
@@ -146,6 +167,14 @@ public class Utils {
 		return names[names.length - 1];
 	}
 
+	public static String getFirstDirname(String path) {
+		if (path == null || path.length() == 0)
+			return null;
+		String[] names = path.split("[\\\\/]");
+		if (names == null || names.length <= 1)
+			return null;
+		return names[0];
+	}
 	public static String getDirname(String path) {
 		if (path == null || path.length() == 0)
 			return null;
@@ -271,6 +300,14 @@ public class Utils {
 		}
 	}
 
+	public static String getFormatedPath(String path) {
+		return (new File(path == null ? "" : path)).getPath();
+//		try {
+//		} catch (IOException e) {
+//			logger.error("getPath {} failed, {}", path, e.getMessage());
+//			throw new RuntimeException("get canonical path '" + path + "' failed, " + e.getMessage(), e);
+//		}
+	}
 	public static String getCanonicalPath(String path) {
 		try {
 			return (new File(path == null ? "" : path)).getCanonicalPath();
@@ -283,16 +320,26 @@ public class Utils {
 	public static void main(String[] args) throws IOException {
 		File f1 = new File(".\\test1.txt");
 		File f2 = new File("D:\\git\\pingp\\test1.txt");
+		File f3 = new File("git//pingp\\test1.txt");
+		File f4 = new File("git//pingp\\");
 		System.out.println(File.separator);
 		System.out.println(getCanonicalPath(null));
 		System.out.println("---------------------------------");
-		System.out.println(f1.getPath());
-		System.out.println(f1.getAbsolutePath());
-		System.out.println(f1.getCanonicalPath());
+		System.out.println("f1.getPath()=" + f1.getPath());
+		System.out.println("f1.getAbsolutePath()=" + f1.getAbsolutePath());
+		System.out.println("f1.getCanonicalPath()=" + f1.getCanonicalPath());
 		System.out.println("---------------------------------");
-		System.out.println(f2.getPath());
-		System.out.println(f2.getAbsolutePath());
-		System.out.println(f2.getCanonicalPath());
+		System.out.println("f2.getPath()=" + f2.getPath());
+		System.out.println("f2.getAbsolutePath()=" + f2.getAbsolutePath());
+		System.out.println("f2.getCanonicalPath()=" + f2.getCanonicalPath());
+		System.out.println("---------------------------------");
+		System.out.println("f3.getPath()=" + f3.getPath());
+		System.out.println("f3.getAbsolutePath()=" + f3.getAbsolutePath());
+		System.out.println("f3.getCanonicalPath()=" + f3.getCanonicalPath());
+		System.out.println("---------------------------------");
+		System.out.println("f4.getPath()=" + f4.getPath());
+		System.out.println("f4.getAbsolutePath()=" + f4.getAbsolutePath());
+		System.out.println("f4.getCanonicalPath()=" + f4.getCanonicalPath());
 		System.out.println("---------------------------------");
 	}
 }

@@ -9,69 +9,70 @@
 
 package com.ping.file.serv;
 
-import java.net.Socket;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.ping.file.protocol.Command;
 import com.ping.file.protocol.Packet;
 import com.ping.file.util.ClientSocket;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.net.Socket;
 
 /**
  * 主过滤器/分流器.
- * 
+ *
  * @author lawnstein.chan
  * @version $Revision:$
  */
 class ServFilter implements Runnable {
-	private static final Logger logger = LoggerFactory.getLogger(TcpServer.class);
+    private static final Logger logger = LoggerFactory.getLogger(TcpServer.class);
 
-	protected TcpServer owner;
+    protected TcpServer owner;
 
-	protected Socket s;
-	protected Packet recv = null;
+    protected Socket s;
+    protected Packet recv = null;
 
-	public ServFilter(TcpServer owner, Socket socket) {
-		this.owner = owner;
-		this.s = socket;
-		logger.info("connection {} accepted", s);
-	}
+    public ServFilter(TcpServer owner, Socket socket) {
+        this.owner = owner;
+        this.s = socket;
+        logger.info("connection {} accepted", s);
+    }
 
-	private void close() {
-		logger.info("connection {} closed", s);
-		if (s != null) {
-			ClientSocket.close(s);
-		}
-	}
+    private void close() {
+        logger.info("connection {} closed", s);
+        if (s != null) {
+            ClientSocket.close(s);
+        }
+    }
 
-	@Override
-	public void run() {
-		try {
-			recv = ClientSocket.recvPacket(s, owner.timeout);
-			logger.debug("Recv [{}], {}", recv, s);
+    @Override
+    public void run() {
+        try {
+            recv = ClientSocket.recvPacket(s, owner.timeout);
+            logger.debug("Recv [{}], {}", recv, s);
 
-			Runnable r = null;
-			if (Command.UPCHUNK.equals(recv.command)) {
-				r = new ServUpfileHandler(this);
-			} else if (Command.DWLIST.equals(recv.command)) {
-				r = new ServDwlistHandler(this);
-			} else if (Command.DWCHUNK.equals(recv.command)) {
-				r = new ServDwfileHandler(this);
-			} else {
-				throw new RuntimeException("unexpected first handle type.");
-			}
+            Runnable r = null;
+            if (Command.UPLIST.equals(recv.command)) {
+				r = new ServUplistHandler(this);
+            } else if (Command.UPCHUNK.equals(recv.command)) {
+                r = new ServUpfileHandler(this);
+            } else if (Command.DWLIST.equals(recv.command)) {
+                r = new ServDwlistHandler(this);
+            } else if (Command.DWCHUNK.equals(recv.command)) {
+                r = new ServDwfileHandler(this);
+            } else {
+                throw new RuntimeException("unexpected first handle type.");
+            }
 
-			r.run();
-		} catch (Throwable th) {
-			if (owner.isDebug()) {
-				logger.error("connection filter failed, {}", th);
-			} else {
-				logger.error("connection filter failed, {}", th.getMessage());
-			}
-			close();
-		} finally {
-		}
-	}
+            r.run();
+        } catch (Throwable th) {
+            if (owner.isDebug()) {
+                logger.error("connection filter failed, {}", th);
+            } else {
+                logger.error("connection filter failed, {}", th.getMessage());
+            }
+            close();
+        } finally {
+        }
+    }
 
 }

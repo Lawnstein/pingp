@@ -28,8 +28,8 @@ import com.ping.file.util.Utils;
  * @author lawnstein.chan
  * @version $Revision:$
  */
-class ClientUpHandler implements Runnable {
-	private static final Logger logger = LoggerFactory.getLogger(ClientUpHandler.class);
+class ClientUpfileHandler implements Runnable {
+	private static final Logger logger = LoggerFactory.getLogger(ClientUpfileHandler.class);
 
 	private TcpClient owner;
 
@@ -45,7 +45,7 @@ class ClientUpHandler implements Runnable {
 	private Packet recv = null;
 	private boolean result = false;
 
-	public ClientUpHandler(TcpClient owner, String path, String rfilename) throws Exception {
+	public ClientUpfileHandler(TcpClient owner, String path, String rfilename) throws Exception {
 		this.owner = owner;
 		this.chunkSize = owner.chunkSize == null ? Utils.DEFAULT_CHUNK_SIZE : owner.chunkSize;
 		this.s = ClientSocket.connect(owner.ip, owner.port);

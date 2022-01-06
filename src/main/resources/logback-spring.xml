@@ -18,21 +18,9 @@
 			<pattern>[%date{HH:mm:ss.SSS}][%thread][%-5level][%file,%line] %msg%n</pattern>
 		</encoder>
 	</appender>
-	<appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-			<fileNamePattern>${logger.dir}/${logger.appid}/pingp.%d{yyyyMMdd}.log</fileNamePattern>
-			<maxHistory>30</maxHistory>
-			<totalSizeCap>20GB</totalSizeCap>
-		</rollingPolicy>
-		<encoder>
-			<immediateFlush>false</immediateFlush>
-			<pattern>[%date{HH:mm:ss.SSS}][%-5level][%thread] %msg%n</pattern>
-		</encoder>
-	</appender>
 
 	<root level="${logger.rootloglevel}">
 		<appender-ref ref="STDOUT" />
-		<appender-ref ref="FILE" />
 	</root>
 
 </configuration>
