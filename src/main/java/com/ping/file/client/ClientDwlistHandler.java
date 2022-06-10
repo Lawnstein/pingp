@@ -13,6 +13,7 @@ import com.ping.file.protocol.Command;
 import com.ping.file.protocol.Packet;
 import com.ping.file.util.ClientSocket;
 import com.ping.file.util.Utils;
+import com.ping.sync.ChangeManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,7 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -77,17 +79,29 @@ class ClientDwlistHandler implements Runnable {
     }
 
     private void doCleanUnexist(String firstDir, List<String> syncList) {
-        logger.debug("Local dir {} list files, compare with syncList {} file(s)", firstDir, syncList.size());
-        String basePath = Utils.getFormatedPath(Utils.getPwd()) + File.separator;
+        if (Utils.isEmpty(firstDir)) {
+            return;
+        }
+
+        String basePath = Utils.getPwd();
         String filePath = Utils.getCanonicalPath(basePath + firstDir + File.separator);
+        logger.debug("Local dir {}({}, {}) list files, compare with syncList {} file(s) : {}", firstDir, basePath, filePath, syncList.size(), syncList);
         List<String> l = new ArrayList<String>();
-        Utils.getFiles(filePath, l);
+        Utils.getFiles(filePath, true, l);
+        Collections.sort(l);
+        Collections.reverse(l);
+        logger.debug("Local files : {}", l);
         for (String fn : l) {
+            if (fn.endsWith(Utils.DEFAULT_TRANSFERING_CNF_SUFFIX)) {
+                continue;
+            }
+
             String fnm = Utils.getFormatedPath(fn.substring(basePath.length()));
             boolean fnexist = syncList.contains(fnm);
             logger.debug("Local file {} exists ? {}", fnm, fnexist);
             if (!fnexist) {
-                logger.debug("Local file removed: {}", fnm);
+                logger.info("Local file removed: {}", fnm);
+                ChangeManager.deleteClientChanged(fn);
                 Utils.fileDelete(fn);
             }
         }
@@ -163,17 +177,26 @@ class ClientDwlistHandler implements Runnable {
                         }
                         fs = Utils.decodeBase64(fs.trim());
                         fileL.add(fs);
-                        logger.debug("dwsyn file {}/{}  {}", i, fileListArray.length, fs);
+                        logger.debug("dw file {}/{}  {}", i, fileListArray.length, fs);
                     }
                 }
                 if (fileL.size() > 0) {
-                    owner.fileList = new String[fileL.size()];
                     Collections.sort(fileL);
-                    fileL.toArray(owner.fileList);
-
+                    Collections.reverse(fileL);
                     if (isLocalSync()) {
                         doSyncClean(fileL);
                     }
+
+                    Iterator<String> itr = fileL.iterator();
+                    while (itr.hasNext()) {
+                        String fn = itr.next();
+                        if (Utils.isDirectoryPath(fn)) {
+                            itr.remove();
+                        }
+                    }
+
+                    owner.fileList = new String[fileL.size()];
+                    fileL.toArray(owner.fileList);
                 }
             }
 

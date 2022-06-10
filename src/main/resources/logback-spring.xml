@@ -8,6 +8,7 @@
 	
 	<logger name="org.springframework" level="WARN" />
 	<logger name="com.ping.file.client" level="WARN" />
+	<!--<logger name="com.ping.file.serv" level="DEBUG" />-->
 	
 	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
 		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
@@ -18,9 +19,25 @@
 			<pattern>[%date{HH:mm:ss.SSS}][%thread][%-5level][%file,%line] %msg%n</pattern>
 		</encoder>
 	</appender>
-
+	<!--
+	<appender name="FILE" append="true" class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${logger.dir}/${logger.appid}.log</file>
+		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+			<fileNamePattern>${logger.dir}/${logger.appid}_%d{yyyy-mm-dd-HH}.log.zip</fileNamePattern>
+			<maxHistory>30</maxHistory>
+			<totalSizeCap>10GB</totalSizeCap>
+		</rollingPolicy>
+		<triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+			<maxFileSize>100MB</maxFileSize>
+		</triggeringPolicy>
+		<encoder>
+			<pattern>%d{HH:mm:ss.SSS}[%thread][%-5level] %m%n</pattern>
+		</encoder>
+	</appender>
+	-->
 	<root level="${logger.rootloglevel}">
 		<appender-ref ref="STDOUT" />
+		<!--<appender-ref ref="FILE" />-->
 	</root>
 
 </configuration>

@@ -63,17 +63,28 @@ class ServUplistHandler implements Runnable {
     }
 
     private void doCleanUnexist(String firstDir, List<String> syncList) {
-        logger.debug("Serv localDir {} list files, compare with syncList {} file(s)", firstDir, syncList.size());
-        String basePath = Utils.getFormatedPath(ChangeManager.getBaseDir()) + File.separator;
+        if (Utils.isEmpty(firstDir)) {
+            return;
+        }
+
+        String basePath = ChangeManager.getBaseDir();
         String filePath = Utils.getCanonicalPath(basePath + firstDir + File.separator);
+        logger.debug("Serv localDir {}({},{}) list files, compare with syncList {} file(s) : {}", firstDir, basePath, filePath, syncList.size(), syncList);
         List<String> l = new ArrayList<String>();
-        Utils.getFiles(filePath, l);
+        Utils.getFiles(filePath, true, l);
+        Collections.sort(l);
+        Collections.reverse(l);
+        logger.debug("Serv localFiles : {}", l);
         for (String fn : l) {
+            if (fn.endsWith(Utils.DEFAULT_TRANSFERING_CNF_SUFFIX)) {
+                continue;
+            }
+
             String fnm = Utils.getFormatedPath(fn.substring(basePath.length()));
             boolean fnexist = syncList.contains(fnm);
             logger.debug("Serv localFile {} exists ? {}", fnm, fnexist);
             if (!fnexist) {
-                logger.debug("Serv file removed: {}", fnm);
+                logger.info("Serv file removed: {}", fnm);
                 ChangeManager.deleteServChangelog(fn.substring(basePath.length()));
                 Utils.fileDelete(fn);
             }
@@ -149,12 +160,13 @@ class ServUplistHandler implements Runnable {
                             }
                             fs = Utils.decodeBase64(fs.trim());
                             fileL.add(fs);
-                            logger.debug("upsyn file {}/{}  {}", i, fileListArray.length, fs);
+                            logger.debug("up file {}/{}  {}", i, fileListArray.length, fs);
                         }
                     }
                     if (fileL.size() > 0) {
                         files = new String[fileL.size()];
                         Collections.sort(fileL);
+                        Collections.reverse(fileL);
                         fileL.toArray(files);
 
                         doSyncClean(fileL);

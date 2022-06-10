@@ -87,7 +87,7 @@ class ServDwlistHandler implements Runnable {
 			fileCount = 1;
 		} else if (Utils.dirExists(filePath)) {
 			List<String> l = new ArrayList<String>();
-			Utils.getFiles(filePath, l);
+			Utils.getFiles(filePath, true, l);
 			fileCount = l.size();
 			if (l.size() == 0) {
 				send.cmdResult = false;
@@ -97,6 +97,9 @@ class ServDwlistHandler implements Runnable {
 			}
 			for (String s : l) {
 				String fn = s.substring(ChangeManager.getBaseDir().length());
+				if (Utils.isEmpty(fn)) {
+					continue;
+				}
 				logger.debug("file {} ", fn);
 				if (sb.length() > 0) {
 					sb.append(",");

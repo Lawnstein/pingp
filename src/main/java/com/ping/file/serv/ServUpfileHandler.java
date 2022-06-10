@@ -73,7 +73,7 @@ class ServUpfileHandler implements Runnable {
 	}
 
 	public String[] getConf() {
-		File cnf = new File(filePath + ".@{cnf}");
+		File cnf = new File(filePath + Utils.DEFAULT_TRANSFERING_CNF_SUFFIX);
 		if (!cnf.exists()) {
 			return null;
 		}
@@ -105,7 +105,7 @@ class ServUpfileHandler implements Runnable {
 	}
 
 	public void writeConf(String content) throws IOException {
-		File cnf = new File(filePath + ".@{cnf}");
+		File cnf = new File(filePath + Utils.DEFAULT_TRANSFERING_CNF_SUFFIX);
 		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), owner.DEFAULT_FILE_ENCODING));
 		writer.write(content);
 		writer.close();
@@ -113,7 +113,7 @@ class ServUpfileHandler implements Runnable {
 	}
 
 	public void delConf() {
-		File cnf = new File(filePath + ".@{cnf}");
+		File cnf = new File(filePath + Utils.DEFAULT_TRANSFERING_CNF_SUFFIX);
 		if (!cnf.exists()) {
 			return;
 		}

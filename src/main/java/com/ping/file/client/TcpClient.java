@@ -51,7 +51,7 @@ public class TcpClient {
 
     public TcpClient(String ip, int port, String path, int maxThreads, ClientProperties propties) {
         super();
-        this.path = path;
+        this.path = Utils.getFormatedPath(path);
         this.ip = ip != null && ip.length() > 0 ? ip : propties.ip;
         this.port = port > 0 ? port : propties.port;
         if (propties != null && propties.timeout > 0) {
@@ -115,6 +115,10 @@ public class TcpClient {
         return debug;
     }
 
+    public void stopPerct() {
+        System.out.println("\b\b\bover");
+    }
+
     public void startPerct(final int totalCounter, final CountDownLatch countDown) {
         if (totalCounter == 0 || countDown == null) {
             return;
@@ -158,7 +162,7 @@ public class TcpClient {
     }
 
     public void doDw(boolean specifiedSingleFile, String[] sources, boolean syncMode) {
-        logger.debug("doDw {} file(s) for {} ...", sources.length, path);
+        logger.debug("doDw {} file(s) for {} ... {}", sources.length, path, sources);
         String[] fl = sources;
         String pwd = Utils.getPwd();
         List<String> ud = new ArrayList<String>();
@@ -171,19 +175,21 @@ public class TcpClient {
                 @Override
                 public void run() {
                     Exception thr = null;
-                    for (int i = 0; i < retry; i++) {
-                        try {
-                            ClientDwfileHandler h = new ClientDwfileHandler(owner, syncMode, fullname, fs);
-                            h.run();
-                            thr = null;
-                            break;
-                        } catch (Exception e) {
-                            if (isDebug()) {
-                                logger.error("dw {} with {} failed, {}", path, fs, e);
-                            } else {
-                                logger.error("dw {} with {} failed, {}", path, fs, e.getMessage());
+                    if (!Utils.isDirectoryPath(fs)) {
+                        for (int i = 0; i < retry; i++) {
+                            try {
+                                ClientDwfileHandler h = new ClientDwfileHandler(owner, syncMode, fullname, fs);
+                                h.run();
+                                thr = null;
+                                break;
+                            } catch (Exception e) {
+                                if (isDebug()) {
+                                    logger.error("dw {} with {} failed, {}", path, fs, e);
+                                } else {
+                                    logger.error("dw {} with {} failed, {}", path, fs, e.getMessage());
+                                }
+                                thr = e;
                             }
-                            thr = e;
                         }
                     }
                     if (thr != null) {
@@ -208,6 +214,7 @@ public class TcpClient {
             }
             logger.debug("{} file(s) dw over, {} failed {}", fl.length, ud.size(), uds);
         }
+        stopPerct();
     }
 
     public void download() {
@@ -267,44 +274,46 @@ public class TcpClient {
     }
 
     private void doUp(final String origDir, List<String> sources, boolean syncMode) {
-        logger.debug("doUp {} file(s) for {} ...", sources.size(), origDir);
+        logger.debug("doUp {} file(s) for {} ... {}", sources.size(), origDir, sources);
         List<String> fl = sources;
         List<String> ud = new ArrayList<String>();
         CountDownLatch cdl = new CountDownLatch(fl.size());
         startPerct(fl.size(), cdl);
         for (String fs : fl) {
-            final String fn = origDir == null || origDir.length() == 0 ? fs : fs.substring(origDir.length() - 1);
+            final String fn = origDir == null || origDir.length() == 0 ? fs : fs.substring(origDir.length());
             final TcpClient owner = this;
             Runnable r = new Runnable() {
                 @Override
                 public void run() {
                     Exception thr = null;
-                    for (int i = 0; i < retry; i++) {
-                        try {
-                            int stat = -1;
-                            boolean up = true;
-                            if (syncMode) {
-                                stat = ChangeManager.getClientChanged(fs);
-                                if (stat == 0) {
-                                    up = false;
+                    if (!Utils.isDirectoryPath(fs)) {
+                        for (int i = 0; i < retry; i++) {
+                            try {
+                                int stat = -1;
+                                boolean up = true;
+                                if (syncMode) {
+                                    stat = ChangeManager.getClientChanged(fs);
+                                    if (stat == 0) {
+                                        up = false;
+                                    }
                                 }
-                            }
-                            if (up) {
-                                ClientUpfileHandler h = new ClientUpfileHandler(owner, fs, fn);
-                                h.run();
-                                if (h.isResult() && stat > 0) {
-                                    ChangeManager.writeClientChangelog(fs, h.getFileChksum());
+                                if (up) {
+                                    ClientUpfileHandler h = new ClientUpfileHandler(owner, fs, fn);
+                                    h.run();
+                                    if (h.isResult() && stat > 0) {
+                                        ChangeManager.writeClientChangelog(fs, h.getFileChksum());
+                                    }
+                                    thr = null;
                                 }
-                                thr = null;
+                                break;
+                            } catch (Exception e) {
+                                if (isDebug()) {
+                                    logger.error("up {} with {} failed, {}", path, fs, e);
+                                } else {
+                                    logger.error("up {} with {} failed, {}", path, fs, e.getMessage());
+                                }
+                                thr = e;
                             }
-                            break;
-                        } catch (Exception e) {
-                            if (isDebug()) {
-                                logger.error("up {} with {} failed, {}", path, fs, e);
-                            } else {
-                                logger.error("up {} with {} failed, {}", path, fs, e.getMessage());
-                            }
-                            thr = e;
                         }
                     }
                     if (thr != null) {
@@ -329,16 +338,26 @@ public class TcpClient {
             }
             logger.debug("{} file(s) up over, {} failed {}", fl.size(), ud.size(), uds);
         }
+
+        stopPerct();
     }
 
-    public void upload() {
-        File f = new File(path);
-        String origDir = "";
+    private String getUpOrigDir(String origPath) {
+        File f = new File(origPath);
+        String origDir = null;
         if (f.isFile()) {
-            origDir = Utils.getDirname(path);
+            origDir = Utils.getDirname(origPath) + File.separator;
         } else if (f.isDirectory()) {
-            origDir = path.substring(0, path.length() - Utils.getBasename(path).length());
-        } else {
+            origDir = origPath.substring(0, Utils.getDirname(origPath).length());
+            //origDir = Utils.getFormatedPath(origPath.substring(0, origPath.length() - Utils.getBasename(origPath).length()));
+        }
+        return origDir;
+    }
+
+
+    public void upload() {
+        String origDir = getUpOrigDir(path);
+        if (Utils.isEmpty(origDir)) {
             return;
         }
 
@@ -365,7 +384,7 @@ public class TcpClient {
                 }
             }
 
-            logger.debug("Locate {} file(s) for {}", l.size(), path);
+            logger.debug("Locate {} file(s) for {} on cvsExclude", l.size(), path);
             if (l.size() == 0) {
                 return;
             }
@@ -375,17 +394,13 @@ public class TcpClient {
     }
 
     public void upsyn() {
-        File f = new File(path);
-        String origDir = "";
-        if (f.isFile()) {
-            origDir = Utils.getDirname(path);
-        } else if (f.isDirectory()) {
-            origDir = path.substring(0, path.length() - Utils.getBasename(path).length());
-        } else {
+        String origDir = getUpOrigDir(path);
+        if (Utils.isEmpty(origDir)) {
             return;
         }
+
         List<String> l = new ArrayList<String>();
-        Utils.getFiles(path, l);
+        Utils.getFiles(path, true, l);
         logger.debug("Locate {} file(s) for {}", l.size(), path);
         if (cvsExclude) {
             Iterator<String> itr = l.iterator();
@@ -403,7 +418,7 @@ public class TcpClient {
                 }
             }
 
-            logger.debug("Locate {} file(s) for {}", l.size(), path);
+            logger.debug("Locate {} file(s) for {} on cvsExclude", l.size(), path);
             if (l.size() == 0) {
                 return;
             }

@@ -5,7 +5,9 @@ import com.ping.file.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 
 /**
  * 修改管理.
@@ -136,8 +138,14 @@ public class ChangeManager {
             fileChksum = Utils.chksum(path);
         }
 
-        writeContent(changelogPath, chksum);
+        Utils.fileWrite(changelogPath, chksum);
         logger.debug("file {} chksum wrote.", path);
+    }
+
+    public static void deleteClientChanged(String path) {
+        String changelogPath = getChangelogDir() + getEncodeName(Utils.getCanonicalPath(path));
+        Utils.fileDelete(changelogPath);
+        logger.debug("file {} chksum delete.", path);
     }
 
     /**
@@ -228,7 +236,7 @@ public class ChangeManager {
             fileChksum = Utils.chksum(getBaseDir() + path);
         }
 
-        writeContent(changelogPath, chksum);
+        Utils.fileWrite(changelogPath, chksum);
         logger.debug("file {} chksum wrote.", path);
     }
 
@@ -240,26 +248,5 @@ public class ChangeManager {
         logger.debug("file {} chksum delete.", path);
     }
 
-    private static void writeContent(String path, String content) {
-        if (!Utils.mkdirsForFile(path)) {
-            logger.error("create dir for file '{}' failed.", path);
-            return;
-        }
-        BufferedWriter writer = null;
-        try {
-            File cnf = new File(path);
-            writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), DEFAULT_FILE_ENCODING));
-            writer.write(content);
-        } catch (IOException e) {
-        } finally {
-            if (writer != null) {
-                try {
-                    writer.close();
-                } catch (IOException e) {
-                }
-            }
-            writer = null;
-        }
-    }
 
 }

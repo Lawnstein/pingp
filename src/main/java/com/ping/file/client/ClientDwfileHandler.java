@@ -56,7 +56,7 @@ class ClientDwfileHandler implements Runnable {
         this.filename = rfilename;
         this.filePos = 0l;
         this.fileSize = 0l;
-        logger.debug("local file {}", fullname);
+        logger.debug("local file {} for {}", fullname, rfilename);
     }
 
     public boolean isSync() {
@@ -68,7 +68,7 @@ class ClientDwfileHandler implements Runnable {
     }
 
     public String[] getConf() {
-        File cnf = new File(filePath + ".@{cnf}");
+        File cnf = new File(filePath + Utils.DEFAULT_TRANSFERING_CNF_SUFFIX);
         if (!cnf.exists()) {
             return null;
         }
@@ -100,7 +100,7 @@ class ClientDwfileHandler implements Runnable {
     }
 
     public void writeConf(String content) throws IOException {
-        File cnf = new File(filePath + ".@{cnf}");
+        File cnf = new File(filePath + Utils.DEFAULT_TRANSFERING_CNF_SUFFIX);
         BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cnf.getAbsolutePath(), false), Utils.DEFAULT_FILE_ENCODING));
         writer.write(content);
         writer.close();
@@ -108,7 +108,7 @@ class ClientDwfileHandler implements Runnable {
     }
 
     public void delConf() {
-        File cnf = new File(filePath + ".@{cnf}");
+        File cnf = new File(filePath + Utils.DEFAULT_TRANSFERING_CNF_SUFFIX);
         if (!cnf.exists()) {
             return;
         }

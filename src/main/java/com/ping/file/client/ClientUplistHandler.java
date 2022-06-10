@@ -33,7 +33,7 @@ class ClientUplistHandler implements Runnable {
 
 	private Socket s;
 	private Long chunkSize;
-	private String filename;
+	private String dirname;
 //	private ByteBuffer fileBytes;
 	private byte[] fileBytes = null;
 	private long fileSize = 0l;
@@ -44,12 +44,12 @@ class ClientUplistHandler implements Runnable {
 	private List<String> files;
 
 
-	public ClientUplistHandler(TcpClient owner, String filename, List<String> files) throws Exception {
+	public ClientUplistHandler(TcpClient owner, String dirname, List<String> files) throws Exception {
 		this.owner = owner;
 		this.chunkSize = owner.chunkSize == null ? Utils.DEFAULT_CHUNK_SIZE : owner.chunkSize;
 		this.s = ClientSocket.connect(owner.ip, owner.port);
-		logger.debug("connected to server {}:{} {} for file {}", owner.ip, owner.port, s, filename);
-		this.filename = filename;
+		logger.debug("connected to server {}:{} {} for dir {}", owner.ip, owner.port, s, dirname);
+		this.dirname = dirname;
 		this.files = files;
 	}
 
@@ -62,7 +62,7 @@ class ClientUplistHandler implements Runnable {
 	}
 
 	private void close() {
-		logger.debug("connection {} closed for {}", s, filename);
+		logger.debug("connection {} closed for {}", s, dirname);
 		if (s != null) {
 			ClientSocket.close(s);
 		}
@@ -82,7 +82,10 @@ class ClientUplistHandler implements Runnable {
 
 		StringBuilder sb = new StringBuilder();
 		for (String s : files) {
-			String fn = s.substring(filename.length() - 1);
+			String fn = s.substring(dirname.length());
+			if (Utils.isEmpty(fn)) {
+				continue;
+			}
 			logger.debug("file {} ", fn);
 			if (sb.length() > 0) {
 				sb.append(",");
@@ -104,7 +107,7 @@ class ClientUplistHandler implements Runnable {
 			logger.error(send.cmdMesg);
 			return;
 		}
-		logger.info("file {} list count {}", filename, files.size());
+		logger.debug("file {} list count {}", dirname, files.size());
 	}
 
 
@@ -167,12 +170,12 @@ class ClientUplistHandler implements Runnable {
 				break;
 			}
 
-			logger.debug("uplist {} over.", filename);
+			logger.debug("uplist {} over.", dirname);
 		} catch (Throwable th) {
 			if (owner.isDebug()) {
-				logger.error("uplist {} failed, {}", filename, th);
+				logger.error("uplist {} failed, {}", dirname, th);
 			} else {
-				logger.error("dwlist {} failed, {}", filename, th.getMessage());
+				logger.error("dwlist {} failed, {}", dirname, th.getMessage());
 			}
 		} finally {
 			try {
